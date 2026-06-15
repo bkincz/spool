@@ -2,16 +2,16 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-A CLI for creating, configuring and maintaining micro frontends. spool scaffolds a pnpm monorepo of Module Federation apps on Vite, runs them together, and keeps every app's federation config in sync from a single manifest.
+spool is a small CLI for building micro frontends. It scaffolds a monorepo of Module Federation apps on Vite, starts them together with one command, and keeps every app's federation wiring in sync from a single `spool.json`. You describe your apps once and spool generates the rest.
 
 ## Requirements
 
 - Node 20 or newer
-- pnpm
+- A package manager: pnpm, npm, or yarn. spool defaults to pnpm, but you choose per workspace.
 
-## Setup
+## Install
 
-spool is not published yet, so build it from this repo and link the binary:
+spool isn't on npm yet, so build it from this repo and link the binary:
 
 ```bash
 pnpm install
@@ -19,15 +19,15 @@ pnpm --filter @spool/cli build
 pnpm --filter @spool/cli exec pnpm link --global
 ```
 
-`spool` is now on your PATH:
+Then confirm it's on your PATH:
 
 ```bash
 spool --help
 ```
 
-## Quick Start
+## Getting started
 
-Scaffold a workspace with a host and two remotes, then start everything:
+Create a workspace with a host and two remotes, then start everything:
 
 ```bash
 spool create acme --host shell --remotes "dashboard, profile"
@@ -35,82 +35,77 @@ cd acme
 spool dev
 ```
 
-Open the host at http://localhost:5173 and its remotes are mounted over Module Federation. Run `spool create` with no arguments to be prompted for the names instead.
+Open http://localhost:5173 and you'll see the host with its remotes mounted over Module Federation. Prefer to be asked? Run `spool create` with no arguments and it walks you through it.
 
 ## Commands
 
-### create
+### `spool create [dir]`
 
-Scaffold a new workspace.
-
-```bash
-spool create acme --host shell --remotes "dashboard, profile"
-```
+Scaffolds a new workspace. Pass what you know up front, or leave options out and spool will prompt for them.
 
 | Option | Default | Description |
 |---|---|---|
-| `[dir]` | workspace name | Folder to create the workspace in (defaults to the workspace name) |
+| `[dir]` | workspace name | Folder to create the workspace in |
 | `-n, --name <name>` | folder name | Workspace name |
 | `--host <name>` | `shell` | Host (shell) app name |
-| `--remotes <list>` | prompt | Comma separated remote names |
+| `--remotes <list>` | prompt | Comma-separated remote names |
+| `--pm <manager>` | prompt (`pnpm`) | Package manager: `pnpm`, `npm`, or `yarn` |
 | `--here` | off | Scaffold into the current folder |
-| `--no-install` | off | Skip `pnpm install` |
+| `--no-install` | off | Skip the install step |
 
-### dev
+A note on package managers: spool writes the right setup for whichever you pick: `pnpm-workspace.yaml` for pnpm, a `workspaces` field for npm and yarn. Yarn works on both Classic (v1) and Berry (v3+): Berry's default Plug'n'Play doesn't sit well with Vite and Module Federation, so spool drops in a `.yarnrc.yml` that switches it to the `node_modules` linker. Classic ignores that file and already behaves the same way, so the same workspace runs either way.
 
-Run the host and remotes together.
+### `spool dev`
+
+Starts every app together. Remotes come up first, and spool waits until each one is actually serving its federation manifest before launching the hosts, so a host never loads against a remote that isn't ready. Logs are prefixed and colored per app, and Ctrl+C stops everything cleanly (yes, on Windows too).
 
 ```bash
 spool dev
-spool dev --only shell,dashboard   # run a subset
+spool dev --only shell,dashboard   # just a subset
 ```
 
-Remotes start first. spool waits for each one to serve its federation manifest before starting the hosts, so the host never loads against a remote that is not ready yet. Output is prefixed and colored per app, and Ctrl+C stops every server, including on Windows.
+### `spool build`
 
-### build
-
-Build every app for production, remotes before hosts.
+Builds every app for production, remotes before hosts.
 
 ```bash
 spool build
 spool build --only dashboard
 ```
 
-### add
+### `spool add <name>`
 
-Add an app to an existing workspace.
+Adds an app to an existing workspace.
 
 ```bash
-spool add settings                 # a remote, wired into the host
-spool add admin --type host        # another host
-spool add reports --port 5200      # choose the port
-spool add billing --host shell     # wire into a specific host
+spool add settings              # remote, wired into the host
+spool add admin --type host     # another host
+spool add reports --port 5200   # pick the port
+spool add billing --host shell  # wire into a specific host
 ```
 
-A new remote is wired into the host and the host's federation config (and typings) is regenerated. The host's `App.tsx` is left untouched so your layout is never clobbered, so spool prints the exact `import` and mount snippet to paste in. spool then installs the app so it is ready for `spool dev`. Pass `--no-install` to skip that.
+When you add a remote, spool wires it into the host's federation config and regenerates the typings, but it leaves your `App.tsx` alone so your layout is never overwritten. Instead it prints the exact import and mount snippet to paste in. Then it installs the new app so it's ready for `spool dev` (skip that with `--no-install`).
 
-App and workspace names must be lowercase, start with a letter, and use only letters, digits and single hyphens (for example `dashboard` or `acme-frontend`).
+App and workspace names are kept simple on purpose: lowercase, starting with a letter, using only letters, digits, and single hyphens, like `dashboard` or `acme-frontend`.
 
 | Option | Default | Description |
 |---|---|---|
 | `-t, --type <type>` | `remote` | `host` or `remote` |
 | `-p, --port <port>` | next free | Dev server port |
 | `--host <name>` | first host | Host to wire a new remote into |
-| `--no-install` | off | Skip `pnpm install` |
+| `--no-install` | off | Skip the install step |
 
-### doctor
+### `spool doctor`
 
-Check the workspace for problems.
+Checks the workspace and reports anything off: port collisions, missing app folders, remotes that point nowhere, and remotes no host imports. It exits non-zero on a real error, so it's safe to drop into CI.
 
 ```bash
 spool doctor
 ```
 
-It reports port collisions, missing app folders, remotes that point at nothing, and remotes that no host imports. It exits non zero on an error, so it works in CI.
-
 ## The manifest
 
-Every workspace has a `spool.json` at its root. It is the source of truth: each app's federation config (remotes, exposes, shared deps) is generated from it.
+Everything lives in one `spool.json` at the workspace root. It's the source of truth: each app's federation config (remotes, exposes, shared deps) is generated from it, so you edit one file instead of hand-syncing several.
 
 ```jsonc
 {
@@ -137,21 +132,22 @@ Every workspace has a `spool.json` at its root. It is the source of truth: each 
 | `apps.<name>.remotes` | Remotes a host consumes |
 | `apps.<name>.exposes` | Modules a remote exposes, as `importName: sourcePath` |
 
-You can edit `spool.json` by hand. Run `spool doctor` to check it, and `spool add` regenerates the affected app config.
+Edit it by hand whenever you like, then run `spool doctor` to check it. `spool add` regenerates the affected app config for you.
 
-## What gets generated
+## What you get
+
+Each workspace is a plain Vite + React + TypeScript monorepo. Nothing exotic, no framework to learn:
 
 ```
 acme/
-  spool.json
-  pnpm-workspace.yaml
+  spool.json          # the manifest
   apps/
-    shell/        host, imports the remotes
-    dashboard/    remote, exposes ./App
-    profile/      remote, exposes ./App
+    shell/            # host, imports the remotes
+    dashboard/        # remote, exposes ./App
+    profile/          # remote, exposes ./App
 ```
 
-Each app is a standard Vite, React and TypeScript project. Its `vite.config.ts` holds the Module Federation wiring, generated from `spool.json`.
+The workspace file matches your package manager (`pnpm-workspace.yaml`, or a `workspaces` field in `package.json`). Each app's `vite.config.ts` holds its Module Federation wiring, generated from `spool.json`.
 
 ## License
 

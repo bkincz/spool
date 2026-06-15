@@ -1,0 +1,33 @@
+{
+	"name": "spool-monorepo",
+	"version": "0.1.0",
+	"private": true,
+	"description": "spool — toolset for micro frontends and modular frontend projects",
+	"type": "module",
+	"author": "Benjamin Kinczel <beni.kinczel@gmail.com>",
+	"license": "MIT",
+	"scripts": {
+		"build": "pnpm -r --filter \"./packages/*\" build",
+		"dev": "pnpm --filter @spool/cli dev",
+		"spool": "pnpm --filter @spool/cli exec spool",
+		"type-check": "pnpm -r --filter \"./packages/*\" type-check",
+		"lint": "eslint .",
+		"lint:fix": "eslint . --fix",
+		"format": "prettier --write .",
+		"format:check": "prettier --check .",
+		"clean": "pnpm -r exec rimraf dist"
+	},
+	"engines": {
+		"node": ">=20"
+	},
+	"packageManager": "pnpm@11.6.0",
+	"devDependencies": {
+		"@eslint/js": "^9.39.1",
+		"eslint": "^9.39.1",
+		"globals": "^16.5.0",
+		"prettier": "^3.5.0",
+		"rimraf": "^6.0.1",
+		"typescript": "^5.9.3",
+		"typescript-eslint": "^8.46.4"
+	}
+}
