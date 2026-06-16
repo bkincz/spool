@@ -11,6 +11,8 @@
 		"dev": "pnpm --filter @spool/cli dev",
 		"spool": "pnpm --filter @spool/cli exec spool",
 		"type-check": "pnpm -r --filter \"./packages/*\" type-check",
+		"test:run": "pnpm -r --filter \"./packages/*\" test:run",
+		"test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
 		"lint": "eslint .",
 		"lint:fix": "eslint . --fix",
 		"format": "prettier --write .",
