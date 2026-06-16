@@ -79,7 +79,13 @@ describe('create (interactive)', () => {
  ***************************************************************************************************/
 describe('create (install)', () => {
 	it('installs dependencies by default', async () => {
-		await create(undefined, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: 'dashboard', here: true })
+		await create(undefined, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			here: true,
+		})
 		expect(run).toHaveBeenCalledWith('pnpm', ['install'], expect.objectContaining({ cwd: dir }))
 	})
 

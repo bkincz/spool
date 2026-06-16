@@ -32,7 +32,8 @@ describe('create', () => {
 	it('scaffolds a workspace with a host and remotes', async () => {
 		await create(dir, {
 			name: 'acme',
-			pm: 'pnpm', host: 'shell',
+			pm: 'pnpm',
+			host: 'shell',
 			remotes: 'dashboard, profile',
 			install: false,
 		})
@@ -49,7 +50,13 @@ describe('create', () => {
 	})
 
 	it('writes each app and wires the host config', async () => {
-		await create(dir, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: 'dashboard', install: false })
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			install: false,
+		})
 
 		expect(existsSync(join(dir, 'apps/shell/vite.config.ts'))).toBe(true)
 		expect(existsSync(join(dir, 'apps/dashboard/vite.config.ts'))).toBe(true)
@@ -91,7 +98,13 @@ describe('create', () => {
 		}) as never)
 
 		await expect(
-			create(dir, { name: 'Bad Name', pm: 'pnpm', host: 'shell', remotes: '', install: false })
+			create(dir, {
+				name: 'Bad Name',
+				pm: 'pnpm',
+				host: 'shell',
+				remotes: '',
+				install: false,
+			})
 		).rejects.toThrow()
 		expect(error).toHaveBeenCalledWith(expect.stringContaining('Invalid workspace name'))
 	})
@@ -103,7 +116,13 @@ describe('create', () => {
 		}) as never)
 
 		await expect(
-			create(dir, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: 'shell', install: false })
+			create(dir, {
+				name: 'acme',
+				pm: 'pnpm',
+				host: 'shell',
+				remotes: 'shell',
+				install: false,
+			})
 		).rejects.toThrow()
 		expect(error).toHaveBeenCalledWith(expect.stringContaining('unique'))
 	})

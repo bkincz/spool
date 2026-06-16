@@ -30,7 +30,13 @@ beforeEach(async () => {
 	dir = freshDir('spool-cmd-')
 	cwd = process.cwd()
 	vi.spyOn(console, 'log').mockImplementation(() => {})
-	await create(dir, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: 'dashboard', install: false })
+	await create(dir, {
+		name: 'acme',
+		pm: 'pnpm',
+		host: 'shell',
+		remotes: 'dashboard',
+		install: false,
+	})
 	process.chdir(dir)
 })
 
