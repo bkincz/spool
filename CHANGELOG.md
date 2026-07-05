@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.0 - 2026-07-06
+
+Added `spool remove <name>`: drops an app from `spool.json`, unwires it from
+every host, and regenerates the hosts' ambient typings. The app folder stays
+on disk unless you pass `--files`; deleting is refused if a hand-edited path
+would land outside the workspace. Removing came up the first time the demo
+workspace was restructured, so now it is a command instead of hand-editing.
+
 ## 1.1.0 - 2026-07-06
 
 Lessons from deploying the [live demo](https://spool-demo-shell.pages.dev) to

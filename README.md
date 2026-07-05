@@ -4,7 +4,7 @@
 
 spool is a small CLI for building micro frontends. It scaffolds a monorepo of Module Federation apps on Vite, runs them together with one command, and keeps all federation wiring in a single `spool.json`. Describe your apps once and spool handles the rest.
 
-**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev), a host and its remotes on separate Cloudflare Pages deployments.
+**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev), a Spotify-style music UI where the browse view, search, and the player bar are three independently deployed remotes talking over browser events.
 
 ## Requirements
 
@@ -105,6 +105,21 @@ spool add billing --host shell  # wire into a specific host
 | `--no-install` | off | Skip the install step |
 
 Adding a remote updates `spool.json` and the host's typings. Your `App.tsx` is never touched; spool prints the exact import and mount snippet to paste in.
+
+### `spool remove <name>`
+
+Removes an app: drops it from `spool.json`, unwires it from every host, and regenerates the hosts' typings.
+
+```bash
+spool remove settings           # keeps apps/settings on disk
+spool remove settings --files   # deletes the folder too
+```
+
+If a host's `App.tsx` still imports the removed remote, spool reminds you to take that import out; it never edits your components.
+
+| Option | Default | Description |
+|---|---|---|
+| `--files` | off | Also delete the app folder |
 
 ### `spool doctor`
 

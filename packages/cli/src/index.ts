@@ -5,6 +5,7 @@ import { createRequire } from 'node:module'
 import { Command } from 'commander'
 import { create } from './commands/create.js'
 import { add } from './commands/add.js'
+import { remove } from './commands/remove.js'
 import { dev } from './commands/dev.js'
 import { build } from './commands/build.js'
 import { doctor } from './commands/doctor.js'
@@ -46,6 +47,12 @@ program
 	.option('--host <name>', 'host app to wire this remote into')
 	.option('--no-install', 'skip dependency install')
 	.action(add)
+
+program
+	.command('remove <name>')
+	.description('Remove an app from the workspace and unwire it from hosts')
+	.option('--files', 'also delete the app folder')
+	.action(remove)
 
 program
 	.command('dev')
