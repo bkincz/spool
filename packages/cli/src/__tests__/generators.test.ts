@@ -173,6 +173,10 @@ describe('appFiles (host)', () => {
 		expect(files['vite.config.ts']).not.toContain('remotes:')
 	})
 
+	it('does not ship CORS headers, since nothing fetches a host cross-origin', () => {
+		expect(files['public/_headers']).toBeUndefined()
+	})
+
 	it('lazy-imports each remote in App.tsx', () => {
 		expect(files['src/App.tsx']).toContain('import("dashboard/App")')
 		expect(files['src/App.tsx']).toContain('lazy(')
@@ -214,6 +218,15 @@ describe('appFiles (remote)', () => {
 	it('derives its exposes from the manifest at startup', () => {
 		expect(files['vite.config.ts']).toContain('spoolApp("dashboard"')
 		expect(files['src/remotes.d.ts']).toBeUndefined()
+	})
+
+	it('ships CORS headers so deployed hosts can fetch it cross-origin', () => {
+		expect(files['public/_headers']).toContain('Access-Control-Allow-Origin: *')
+	})
+
+	it('passes the vite command through so deployed urls only apply to builds', () => {
+		expect(files['vite.config.ts']).toContain('({ command })')
+		expect(files['vite.config.ts']).toContain('command)')
 	})
 
 	it('pins the modern federation toolchain', () => {

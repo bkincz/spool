@@ -17,7 +17,8 @@ import { host, remote, makeManifest, freshDir, removeDir } from './helpers.js'
 interface HelperModule {
 	spoolApp: (
 		name: string,
-		from?: string
+		from?: string,
+		command?: 'build' | 'serve'
 	) => {
 		server: { port: number; strictPort: boolean }
 		federation: {
@@ -81,12 +82,17 @@ describe('generated spool.vite.ts', () => {
 		expect(app.federation.filename).toBeUndefined()
 	})
 
-	it("prefers a remote's deployed url from the manifest", () => {
-		const app = helper.spoolApp('shell', dir)
+	it("uses a remote's deployed url for production builds", () => {
+		const app = helper.spoolApp('shell', dir, 'build')
 		expect(app.federation.remotes?.billing).toBe('https://cdn.example.com/mf-manifest.json')
 	})
 
-	it('lets a SPOOL_REMOTE env var override everything', () => {
+	it('keeps dev on the local server even when a deployed url is set', () => {
+		const app = helper.spoolApp('shell', dir, 'serve')
+		expect(app.federation.remotes?.billing).toBe('http://localhost:5175/mf-manifest.json')
+	})
+
+	it('lets a SPOOL_REMOTE env var override everything, dev included', () => {
 		process.env.SPOOL_REMOTE_DASHBOARD = 'https://staging.example.com/mf-manifest.json'
 		const app = helper.spoolApp('shell', dir)
 		expect(app.federation.remotes?.dashboard).toBe(

@@ -4,6 +4,8 @@
 
 spool is a small CLI for building micro frontends. It scaffolds a monorepo of Module Federation apps on Vite, runs them together with one command, and keeps all federation wiring in a single `spool.json`. Describe your apps once and spool handles the rest.
 
+**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev), a host and its remotes on separate Cloudflare Pages deployments.
+
 ## Requirements
 
 - Node 22.12 or newer
@@ -150,13 +152,23 @@ Notes:
 
 ## Deploying remotes
 
+Each app builds to a plain static site, so any static host works. Deploy each remote, set its `url` in `spool.json` to the deployed `mf-manifest.json`, rebuild the host, and deploy that too:
+
+```bash
+spool build
+wrangler pages deploy apps/dashboard/dist   # or netlify deploy, vercel, S3, ...
+```
+
 A host looks up each remote in this order:
 
-1. `SPOOL_REMOTE_<NAME>` environment variable, e.g. `SPOOL_REMOTE_DASHBOARD=https://staging.example.com/mf-manifest.json`
-2. the remote's `url` in `spool.json`
-3. `http://localhost:<port>/mf-manifest.json`
+1. `SPOOL_REMOTE_<NAME>` environment variable, e.g. `SPOOL_REMOTE_DASHBOARD=https://staging.example.com/mf-manifest.json`. Applies in dev and build, so you can point one remote anywhere without touching the manifest.
+2. the remote's `url` in `spool.json`. Production builds only; `spool dev` keeps using your local servers.
+3. `http://localhost:<port>/mf-manifest.json`.
 
-Local dev needs no setup. For production, set each remote's `url` to its deployed manifest and run `spool build`. Use the environment variable to point a single remote somewhere else without touching the manifest.
+Notes:
+
+- Hosts fetch remote assets cross-origin, and static hosts send no CORS headers by default. Every scaffolded remote ships a `public/_headers` file with `Access-Control-Allow-Origin: *`, which Cloudflare Pages and Netlify pick up automatically. On Vercel, set the same header in `vercel.json` instead.
+- The remote's manifest URL is always `<origin>/mf-manifest.json`; production builds emit that file into `dist`.
 
 ## What you get
 

@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.1.0 - 2026-07-06
+
+Lessons from deploying the [live demo](https://spool-demo-shell.pages.dev) to
+Cloudflare Pages, baked into the scaffold:
+
+- A remote's `url` now applies to production builds only. `spool dev` keeps
+  loading remotes from your local dev servers, so setting deployed urls no
+  longer hijacks local development. `SPOOL_REMOTE_<NAME>` env vars still
+  override everywhere, dev included.
+- New remotes ship a `public/_headers` file with
+  `Access-Control-Allow-Origin: *`. Hosts fetch remote assets cross-origin and
+  static hosts send no CORS headers by default; Cloudflare Pages and Netlify
+  read this file as-is.
+- The README gained a real deploy guide.
+
+Existing workspaces: regenerate `spool.vite.ts` and each app's
+`vite.config.ts` by scaffolding a fresh app and copying them over, or apply
+the same edits by hand (the config now passes vite's `command` into
+`spoolApp`).
+
 ## 1.0.1 - 2026-07-06
 
 Fixed: production builds of remotes did not emit `mf-manifest.json`, so a

@@ -1,6 +1,6 @@
 {
 	"name": "@bkincz/spool",
-	"version": "1.0.1",
+	"version": "1.1.0",
 	"description": "spool CLI: create, configure and maintain micro frontends",
 	"type": "module",
 	"keywords": [
