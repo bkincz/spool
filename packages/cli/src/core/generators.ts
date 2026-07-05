@@ -162,6 +162,7 @@ export interface SpoolAppConfig {
   federation: {
     name: string;
     filename?: string;
+    manifest?: boolean;
     remotes?: Record<string, string>;
     exposes?: Record<string, string>;
     shared: string[];
@@ -210,7 +211,15 @@ export function spoolApp(name: string, from: string = process.cwd()): SpoolAppCo
 
   return {
     server,
-    federation: { name, filename: "remoteEntry.js", exposes: app.exposes ?? {}, shared },
+    federation: {
+      name,
+      filename: "remoteEntry.js",
+      // Dev serves mf-manifest.json automatically; builds only emit it with
+      // this flag, and hosts load remotes by their manifest URL.
+      manifest: true,
+      exposes: app.exposes ?? {},
+      shared,
+    },
   };
 }
 `

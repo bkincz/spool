@@ -23,6 +23,7 @@ interface HelperModule {
 		federation: {
 			name: string
 			filename?: string
+			manifest?: boolean
 			remotes?: Record<string, string>
 			exposes?: Record<string, string>
 			shared: string[]
@@ -99,6 +100,9 @@ describe('generated spool.vite.ts', () => {
 		expect(app.federation.filename).toBe('remoteEntry.js')
 		expect(app.federation.exposes).toEqual({ './App': './src/App.tsx' })
 		expect(app.federation.remotes).toBeUndefined()
+		// Without this flag, production builds never emit mf-manifest.json and
+		// deployed hosts cannot resolve the remote.
+		expect(app.federation.manifest).toBe(true)
 	})
 
 	it('names an unknown app in its error', () => {

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 - 2026-07-06
+
+Fixed: production builds of remotes did not emit `mf-manifest.json`, so a
+deployed host could not resolve any remote. The dev server serves the manifest
+automatically, which is why `spool dev` worked and builds silently did not.
+Scaffolded workspaces now pass `manifest: true` to the federation plugin in
+`spool.vite.ts`. Existing workspaces can apply the same one-line fix to their
+`spool.vite.ts`; new scaffolds include it.
+
 ## 1.0.0 - 2026-07-06
 
 First public release.
