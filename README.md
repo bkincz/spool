@@ -4,7 +4,7 @@
 
 spool is a small CLI for building micro frontends. It scaffolds a monorepo of Module Federation apps on Vite, runs them together with one command, and keeps all federation wiring in a single `spool.json`. Describe your apps once and spool handles the rest.
 
-**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev), a Spotify-style music UI where the browse view, search, and the player bar are three independently deployed remotes talking over browser events.
+**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev), a Spotify-style music UI where the browse view, search, and the player bar are independently deployed remotes sharing one player state through [@bkincz/clutch](https://github.com/bkincz/clutch) as a federation singleton.
 
 ## Requirements
 
