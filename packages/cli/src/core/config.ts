@@ -2,12 +2,19 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { z } from 'zod'
+import { CliError } from '../util/errors.js'
 
 /*
  *   SCHEMAS
  ***************************************************************************************************/
 /** Manifest file name that marks a spool workspace root. */
 export const MANIFEST_FILE = 'spool.json'
+
+/** Runtime helper at the workspace root; every app's vite config imports it. */
+export const HELPER_FILE = 'spool.vite.ts'
+
+/** Manifest schema version this CLI understands. */
+export const MANIFEST_VERSION = 1
 
 /**
  * Workspace and app names become folder names, npm package names, federation
@@ -31,49 +38,76 @@ export function validateName(value: string, label = 'name'): string | undefined 
 export const AppType = z.enum(['host', 'remote'])
 export type AppType = z.infer<typeof AppType>
 
-export const AppSchema = z.object({
-	/** "host" mounts remotes; "remote" exposes modules. */
-	type: AppType,
-	/** Path to the app, relative to workspace root. */
-	path: z.string(),
-	/** Dev server port. */
-	port: z.number().int().positive().max(65535),
-	/** Remotes a host consumes (names referencing other apps). */
-	remotes: z.array(z.string()).default([]),
-	/** Modules a remote exposes: exposeKey -> source path. */
-	exposes: z.record(z.string()).default({}),
-})
+// Strict schemas: spool.json is hand-edited, so typos must fail loudly
+// instead of being silently dropped.
+export const AppSchema = z
+	.object({
+		/** "host" mounts remotes; "remote" exposes modules. */
+		type: AppType,
+		/** Path to the app, relative to workspace root. */
+		path: z.string(),
+		/** Dev server port. */
+		port: z.number().int().positive().max(65535),
+		/** Deployed manifest URL of a remote, used by host production builds. */
+		url: z.string().url().optional(),
+		/** Remotes a host consumes (names referencing other apps). */
+		remotes: z.array(z.string()).default([]),
+		/** Modules a remote exposes: exposeKey -> source path. */
+		exposes: z.record(z.string()).default({}),
+	})
+	.strict()
 export type AppConfig = z.infer<typeof AppSchema>
 
-export const ManifestSchema = z.object({
-	/** Org/workspace name; used for npm scope and federation naming. */
-	name: NameSchema,
-	/** Schema version for forward-compat migrations. */
-	version: z.literal(1).default(1),
-	packageManager: z.enum(['pnpm', 'npm', 'yarn']).default('pnpm'),
-	bundler: z.enum(['vite', 'rspack']).default('vite'),
-	/** Deps shared as singletons across federation boundary. */
-	shared: z.array(z.string()).default(['react', 'react-dom']),
-	/** App registry keyed by app name. */
-	apps: z.record(NameSchema, AppSchema).default({}),
-})
+export const ManifestSchema = z
+	.object({
+		/** Org/workspace name; used for npm scope and federation naming. */
+		name: NameSchema,
+		/** Schema version for forward-compat migrations. */
+		version: z.literal(MANIFEST_VERSION).default(MANIFEST_VERSION),
+		packageManager: z.enum(['pnpm', 'npm', 'yarn']).default('pnpm'),
+		bundler: z.enum(['vite', 'rspack']).default('vite'),
+		/** Deps shared as singletons across federation boundary. */
+		shared: z.array(z.string()).default(['react', 'react-dom']),
+		/** App registry keyed by app name. */
+		apps: z.record(NameSchema, AppSchema).default({}),
+	})
+	.strict()
 export type Manifest = z.infer<typeof ManifestSchema>
 
 /*
  *   FACTORIES
  ***************************************************************************************************/
 export function parseManifest(raw: unknown): Manifest {
-	return ManifestSchema.parse(raw)
+	// Newer manifest versions get a clear upgrade message, not a schema error.
+	if (raw !== null && typeof raw === 'object' && 'version' in raw) {
+		const v = (raw as { version: unknown }).version
+		if (v !== undefined && v !== MANIFEST_VERSION) {
+			throw new CliError(
+				`This workspace uses spool.json version ${String(v)}, but this CLI only understands version ${MANIFEST_VERSION}. Upgrade spool and try again.`
+			)
+		}
+	}
+
+	const result = ManifestSchema.safeParse(raw)
+	if (!result.success) {
+		const details = result.error.issues
+			.map(issue => `  - ${issue.path.join('.') || '(root)'}: ${issue.message}`)
+			.join('\n')
+		throw new CliError(`Invalid ${MANIFEST_FILE}:\n${details}`)
+	}
+	return result.data
 }
 
 export function emptyManifest(name: string): Manifest {
-	return ManifestSchema.parse({ name, apps: {} })
+	return parseManifest({ name, apps: {} })
 }
 
 export function appPort(m: Manifest, name: string): number {
 	const app = m.apps[name]
 	if (!app) {
-		throw new Error(`No app named "${name}" in this workspace. Check the names in spool.json.`)
+		throw new CliError(
+			`No app named "${name}" in this workspace. Check the names in spool.json.`
+		)
 	}
 	return app.port
 }

@@ -13,7 +13,8 @@ jobs:
         strategy:
             matrix:
                 os: [ubuntu-latest, windows-latest]
-                node-version: [24]
+                # 20 is the oldest supported line (engines: ^20.19.0).
+                node-version: [20, 24]
 
         steps:
             - name: Checkout
@@ -40,10 +41,8 @@ jobs:
             - name: Format check
               run: pnpm run format:check
 
-            - name: Test
-              run: pnpm run test:run
-
-            - name: Test coverage
+            # Coverage runs the whole suite; no separate test run needed.
+            - name: Test (with coverage)
               run: pnpm run test:coverage
 
             - name: Upload coverage to Codecov
@@ -84,3 +83,59 @@ jobs:
                   name: dist
                   path: packages/cli/dist
                   retention-days: 7
+
+    # Scaffold a real workspace with the built CLI, install, and build it.
+    # Catches upstream vite/plugin releases that break new workspaces.
+    smoke:
+        name: Smoke (scaffold + install + build)
+        runs-on: ${{ matrix.os }}
+        needs: test
+        strategy:
+            matrix:
+                os: [ubuntu-latest, windows-latest]
+
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
+
+            - name: Setup pnpm
+              uses: pnpm/action-setup@v4
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v4
+              with:
+                  node-version: 24
+                  cache: 'pnpm'
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Build CLI
+              run: pnpm run build
+
+            - name: Scaffold a workspace
+              shell: bash
+              run: node packages/cli/dist/index.js create "$RUNNER_TEMP/smoke" --name smoke --host shell --remotes dashboard --pm pnpm --no-install
+
+            # A fresh scaffold has no lockfile, and pnpm defaults to
+            # --frozen-lockfile on CI, which errors when the lockfile is absent.
+            - name: Install workspace dependencies
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: pnpm install --no-frozen-lockfile
+
+            - name: Doctor
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: node "$GITHUB_WORKSPACE/packages/cli/dist/index.js" doctor
+
+            - name: Build workspace
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: node "$GITHUB_WORKSPACE/packages/cli/dist/index.js" build
+
+            # Generated files must already satisfy the .prettierrc we ship.
+            - name: Check generated formatting
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: pnpm dlx prettier@3 --check .

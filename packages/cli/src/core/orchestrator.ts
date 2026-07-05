@@ -8,6 +8,7 @@ import type { Workspace } from './workspace.js'
 import type { AppConfig } from './config.js'
 import { run, spawnProcess, killTree } from '../util/exec.js'
 import { waitForManifest } from '../util/net.js'
+import { CliError } from '../util/errors.js'
 import { log } from '../util/logger.js'
 
 /*
@@ -30,11 +31,27 @@ function selectApps(ws: Workspace, only?: string[]): NamedApp[] {
 	const known = new Set(all.map(a => a.name))
 	const unknown = only.filter(name => !known.has(name))
 	if (unknown.length) {
-		throw new Error(
+		throw new CliError(
 			`Unknown app(s) in --only: ${unknown.join(', ')}. Check the names in spool.json.`
 		)
 	}
 	return all.filter(a => only.includes(a.name))
+}
+
+/**
+ * A host started without its remotes fails at runtime when it imports them.
+ * Warn up front instead of leaving it to the browser console.
+ */
+function warnExcludedRemotes(selected: NamedApp[]): void {
+	const names = new Set(selected.map(a => a.name))
+	for (const { name, app } of hostsOf(selected)) {
+		const missing = app.remotes.filter(r => !names.has(r))
+		if (missing.length) {
+			log.warn(
+				`${name} expects remote(s) ${missing.join(', ')} that are not selected. Start them separately or the host will fail to load them.`
+			)
+		}
+	}
 }
 
 const remotesOf = (apps: NamedApp[]): NamedApp[] => apps.filter(a => a.app.type === 'remote')
@@ -50,19 +67,37 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 		return
 	}
 
+	warnExcludedRemotes(apps)
+
 	const remotes = remotesOf(apps)
 	const hosts = hostsOf(apps)
 	const children: ChildProcess[] = []
 	let shuttingDown = false
 
-	const shutdown = (code = 0): void => {
+	// A crashing child rejects this promise, failing devAll like any other
+	// command error. Signals still exit directly.
+	let reportCrash!: (err: Error) => void
+	const crashed = new Promise<never>((_, reject) => {
+		reportCrash = reject
+	})
+
+	const stopAll = (): void => {
 		if (shuttingDown) return
 		shuttingDown = true
-		for (const child of children) killTree(child)
-		process.exit(code)
+		for (const child of children) {
+			killTree(child)
+			// killTree doesn't wait on POSIX. A child that survives SIGTERM
+			// would hold these pipes open and keep this process alive.
+			child.stdout?.destroy()
+			child.stderr?.destroy()
+		}
 	}
-	process.on('SIGINT', () => shutdown(0))
-	process.on('SIGTERM', () => shutdown(0))
+	const onSignal = (): void => {
+		stopAll()
+		process.exit(0)
+	}
+	process.on('SIGINT', onSignal)
+	process.on('SIGTERM', onSignal)
 
 	const start = (named: NamedApp, colorIndex: number): void => {
 		const child = spawnApp(ws, named, COLORS[colorIndex % COLORS.length]!)
@@ -72,10 +107,12 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 			// and we stay quiet, rather than reporting it as a crash.
 			setImmediate(() => {
 				if (shuttingDown) return
-				log.error(
-					`${named.name} stopped unexpectedly (exit ${code}). Shutting down the others.`
+				stopAll()
+				reportCrash(
+					new CliError(
+						`${named.name} stopped unexpectedly (exit ${code}). Shutting down the others.`
+					)
 				)
-				shutdown(1)
 			})
 		})
 		children.push(child)
@@ -84,10 +121,10 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 	// A host fetches each remote's federation manifest on first load, so the
 	// remotes have to be serving before we hand control to the hosts.
 	remotes.forEach((remote, i) => start(remote, i))
-	await Promise.all(remotes.map(waitForRemote))
+	await Promise.race([Promise.all(remotes.map(waitForRemote)), crashed])
 	hosts.forEach((host, i) => start(host, remotes.length + i))
 
-	await new Promise<void>(() => {})
+	await crashed
 }
 
 async function waitForRemote({ name, app }: NamedApp): Promise<void> {
@@ -136,7 +173,7 @@ export async function buildAll(ws: Workspace, only?: string[]): Promise<void> {
 				cwd: join(ws.root, app.path),
 			})
 		} catch {
-			throw new Error(
+			throw new CliError(
 				`Build failed for "${name}". Run \`${filterBuildCommand(ws.manifest.packageManager, name)}\` to see the full output.`
 			)
 		}

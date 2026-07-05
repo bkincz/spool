@@ -1,10 +1,10 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Workspace } from './workspace.js'
-import type { Manifest } from './config.js'
+import { HELPER_FILE, type Manifest } from './config.js'
 
 /*
  *   TYPES
@@ -26,16 +26,29 @@ const warn = (app: string, message: string): Diagnostic => ({ level: 'warn', app
 export function diagnose(ws: Workspace): Diagnostic[] {
 	const { apps } = ws.manifest
 	return [
+		...checkHelper(ws.root),
 		...checkPorts(apps),
 		...checkPaths(ws.root, apps),
 		...checkRemotes(apps),
 		...checkExposure(apps),
+		...checkSharedDeps(ws),
 	]
 }
 
 /*
  *   CHECKS
  ***************************************************************************************************/
+/** Every app's vite config imports the workspace-root helper at startup. */
+function checkHelper(root: string): Diagnostic[] {
+	if (existsSync(join(root, HELPER_FILE))) return []
+	return [
+		error(
+			'',
+			`${HELPER_FILE} is missing from the workspace root. App vite configs import it; restore it from version control, or run \`spool add\` which recreates it.`
+		),
+	]
+}
+
 function checkPorts(apps: Apps): Diagnostic[] {
 	const issues: Diagnostic[] = []
 	const owners = new Map<number, string>()
@@ -74,6 +87,76 @@ function checkRemotes(apps: Apps): Diagnostic[] {
 		}
 	}
 	return issues
+}
+
+/**
+ * Shared deps are federation singletons: every app must have them, at the
+ * same version range. Apps without a package.json are skipped; checkPaths
+ * already reports missing folders.
+ */
+function checkSharedDeps(ws: Workspace): Diagnostic[] {
+	const issues: Diagnostic[] = []
+	const ranges = collectSharedRanges(ws, issues)
+	issues.push(...findRangeMismatches(ranges))
+	return issues
+}
+
+/** dep -> version range -> apps using that range. */
+type SharedRanges = Map<string, Map<string, string[]>>
+
+function collectSharedRanges(ws: Workspace, issues: Diagnostic[]): SharedRanges {
+	const ranges: SharedRanges = new Map()
+	for (const [name, app] of Object.entries(ws.manifest.apps)) {
+		const pkg = readPackageJson(join(ws.root, app.path, 'package.json'))
+		if (pkg === 'missing') continue
+		if (pkg === 'invalid') {
+			issues.push(warn(name, 'Its package.json could not be parsed; shared deps unchecked.'))
+			continue
+		}
+		const deps = { ...pkg.dependencies, ...pkg.devDependencies }
+		for (const dep of ws.manifest.shared) {
+			const range = deps[dep]
+			if (!range) {
+				issues.push(
+					warn(name, `Shared dep "${dep}" is not in its package.json dependencies.`)
+				)
+				continue
+			}
+			const byRange = ranges.get(dep) ?? new Map<string, string[]>()
+			byRange.set(range, [...(byRange.get(range) ?? []), name])
+			ranges.set(dep, byRange)
+		}
+	}
+	return ranges
+}
+
+function findRangeMismatches(ranges: SharedRanges): Diagnostic[] {
+	const issues: Diagnostic[] = []
+	for (const [dep, byRange] of ranges) {
+		if (byRange.size < 2) continue
+		const detail = [...byRange.entries()].map(([r, names]) => `${names.join(', ')}: ${r}`)
+		issues.push(
+			warn(
+				'',
+				`Shared dep "${dep}" has mismatched versions (${detail.join('; ')}). Singletons across the federation boundary should agree.`
+			)
+		)
+	}
+	return issues
+}
+
+interface PackageJsonDeps {
+	dependencies?: Record<string, string>
+	devDependencies?: Record<string, string>
+}
+
+function readPackageJson(path: string): PackageJsonDeps | 'missing' | 'invalid' {
+	if (!existsSync(path)) return 'missing'
+	try {
+		return JSON.parse(readFileSync(path, 'utf8')) as PackageJsonDeps
+	} catch {
+		return 'invalid'
+	}
 }
 
 function checkExposure(apps: Apps): Diagnostic[] {

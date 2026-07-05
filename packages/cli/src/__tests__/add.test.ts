@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { create } from '../commands/create.js'
 import { add } from '../commands/add.js'
@@ -54,7 +54,35 @@ describe('add', () => {
 		expect(manifest.apps.settings).toMatchObject({ type: 'remote', port: 5175 })
 		expect(manifest.apps.shell.remotes).toContain('settings')
 		expect(existsSync(join(dir, 'apps/settings/vite.config.ts'))).toBe(true)
-		expect(read('apps/shell/vite.config.ts')).toContain('settings')
+		// The vite config reads spool.json at startup, so only the ambient
+		// typings need regenerating on the host.
+		expect(read('apps/shell/src/remotes.d.ts')).toContain('settings/App')
+	})
+
+	it('never rewrites the host vite config, which reads the manifest itself', async () => {
+		const before = read('apps/shell/vite.config.ts')
+		await add('settings', { install: false })
+		expect(read('apps/shell/vite.config.ts')).toBe(before)
+	})
+
+	it('restores a missing runtime helper and warns about pre-helper apps', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		rmSync(join(dir, 'spool.vite.ts'))
+		await add('settings', { install: false })
+		expect(existsSync(join(dir, 'spool.vite.ts'))).toBe(true)
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('restored'))
+	})
+
+	it('leaves an existing runtime helper untouched and quiet', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		await add('settings', { install: false })
+		expect(warn).not.toHaveBeenCalled()
+	})
+
+	it('warns that --host is ignored when adding a host', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		await add('admin', { type: 'host', host: 'shell', install: false })
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('--host only applies'))
 	})
 
 	it('prints exact instructions for mounting the new remote', async () => {
@@ -102,52 +130,28 @@ describe('add', () => {
 	 *   FAILURES
 	 ***************************************************************************************************/
 	it('rejects a duplicate name', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
-		await expect(add('dashboard', { install: false })).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('already exists'))
+		await expect(add('dashboard', { install: false })).rejects.toThrow('already exists')
 	})
 
 	it('rejects an unknown type', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
-		await expect(add('widgetapp', { type: 'widget', install: false })).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('Unknown app type'))
+		await expect(add('widgetapp', { type: 'widget', install: false })).rejects.toThrow(
+			'Unknown app type'
+		)
 	})
 
 	it('rejects an invalid app name', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
-		await expect(add('Bad Name', { install: false })).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('Invalid app name'))
+		await expect(add('Bad Name', { install: false })).rejects.toThrow('Invalid app name')
 	})
 
 	it('rejects a non-numeric port', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
-		await expect(add('reports', { port: 'abc', install: false })).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('Invalid port'))
+		await expect(add('reports', { port: 'abc', install: false })).rejects.toThrow(
+			'Invalid port'
+		)
 	})
 
 	it('rejects a port already in use', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
-		await expect(add('reports', { port: '5173', install: false })).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('already used by'))
+		await expect(add('reports', { port: '5173', install: false })).rejects.toThrow(
+			'already used by'
+		)
 	})
 })

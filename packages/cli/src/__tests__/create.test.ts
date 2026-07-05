@@ -5,7 +5,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { create } from '../commands/create.js'
-import { log } from '../util/logger.js'
 import { freshDir, removeDir } from './helpers.js'
 
 /*
@@ -49,7 +48,7 @@ describe('create', () => {
 		expect(manifest.apps.profile).toMatchObject({ type: 'remote', port: 5175 })
 	})
 
-	it('writes each app and wires the host config', async () => {
+	it('writes each app plus the runtime helper the configs read from', async () => {
 		await create(dir, {
 			name: 'acme',
 			pm: 'pnpm',
@@ -58,11 +57,29 @@ describe('create', () => {
 			install: false,
 		})
 
+		expect(existsSync(join(dir, 'spool.vite.ts'))).toBe(true)
 		expect(existsSync(join(dir, 'apps/shell/vite.config.ts'))).toBe(true)
 		expect(existsSync(join(dir, 'apps/dashboard/vite.config.ts'))).toBe(true)
-		expect(read('apps/shell/vite.config.ts')).toContain(
-			'http://localhost:5174/mf-manifest.json'
-		)
+		// Wiring is resolved at startup from spool.json, never baked in.
+		expect(read('apps/shell/vite.config.ts')).toContain("spoolApp('shell'")
+		expect(read('apps/shell/vite.config.ts')).not.toContain('localhost')
+	})
+
+	it('writes files already formatted to the shipped prettier config', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			install: false,
+		})
+
+		// House style: tabs, single quotes, no trailing semicolons.
+		const viteConfig = read('apps/shell/vite.config.ts')
+		expect(viteConfig).toContain("import { defineConfig } from 'vite'")
+		expect(viteConfig).not.toMatch(/;\r?\n/)
+		expect(read('spool.vite.ts')).toContain('\t')
+		expect(read('spool.json')).toContain('\t')
 	})
 
 	it('scaffolds an npm workspace when --pm npm is chosen', async () => {
@@ -75,15 +92,9 @@ describe('create', () => {
 	})
 
 	it('rejects an unknown package manager', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
 		await expect(
 			create(dir, { name: 'acme', pm: 'bun', host: 'shell', remotes: '', install: false })
-		).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('Unknown package manager'))
+		).rejects.toThrow('Unknown package manager')
 	})
 
 	it('ships the house prettier config into the workspace', async () => {
@@ -92,11 +103,6 @@ describe('create', () => {
 	})
 
 	it('rejects an invalid workspace name', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
 		await expect(
 			create(dir, {
 				name: 'Bad Name',
@@ -105,16 +111,10 @@ describe('create', () => {
 				remotes: '',
 				install: false,
 			})
-		).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('Invalid workspace name'))
+		).rejects.toThrow('Invalid workspace name')
 	})
 
 	it('rejects a remote that collides with the host name', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
-		vi.spyOn(process, 'exit').mockImplementation((() => {
-			throw new Error('exit')
-		}) as never)
-
 		await expect(
 			create(dir, {
 				name: 'acme',
@@ -123,14 +123,24 @@ describe('create', () => {
 				remotes: 'shell',
 				install: false,
 			})
-		).rejects.toThrow()
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('unique'))
+		).rejects.toThrow('unique')
 	})
 
 	it('refuses to overwrite an existing workspace', async () => {
-		const error = vi.spyOn(log, 'error').mockImplementation(() => {})
 		await create(dir, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: '', install: false })
-		await create(dir, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: '', install: false })
-		expect(error).toHaveBeenCalledWith(expect.stringContaining('already a spool workspace'))
+		await expect(
+			create(dir, { name: 'acme', pm: 'pnpm', host: 'shell', remotes: '', install: false })
+		).rejects.toThrow('already a spool workspace')
+	})
+
+	it('blames the folder name when a derived workspace name is invalid', async () => {
+		await expect(
+			create(join(dir, 'Bad Folder'), {
+				pm: 'pnpm',
+				host: 'shell',
+				remotes: '',
+				install: false,
+			})
+		).rejects.toThrow('pass --name')
 	})
 })

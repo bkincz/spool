@@ -43,6 +43,7 @@ beforeEach(async () => {
 afterEach(() => {
 	process.chdir(cwd)
 	removeDir(dir)
+	process.exitCode = undefined
 	vi.clearAllMocks()
 	vi.restoreAllMocks()
 })
@@ -87,7 +88,7 @@ describe('doctor', () => {
 		expect(success).toHaveBeenCalledWith(expect.stringContaining('no problems found'))
 	})
 
-	it('reports warnings without exiting', async () => {
+	it('reports warnings without failing the run', async () => {
 		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
 		manifest.apps.extra = {
 			type: 'remote',
@@ -100,23 +101,21 @@ describe('doctor', () => {
 
 		vi.spyOn(log, 'warn').mockImplementation(() => {})
 		const info = vi.spyOn(log, 'info').mockImplementation(() => {})
-		const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 
 		await doctor()
 		expect(info).toHaveBeenCalledWith(expect.stringContaining('warning'))
-		expect(exit).not.toHaveBeenCalled()
+		expect(process.exitCode).toBeUndefined()
 	})
 
-	it('exits non zero when it finds an error', async () => {
+	it('sets a non-zero exit code when it finds an error', async () => {
 		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
 		manifest.apps.dashboard.port = manifest.apps.shell.port
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
 
 		vi.spyOn(log, 'error').mockImplementation(() => {})
 		vi.spyOn(log, 'info').mockImplementation(() => {})
-		const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 
 		await doctor()
-		expect(exit).toHaveBeenCalledWith(1)
+		expect(process.exitCode).toBe(1)
 	})
 })

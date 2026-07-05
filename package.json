@@ -1,15 +1,15 @@
 {
 	"name": "spool-monorepo",
-	"version": "0.1.0",
+	"version": "1.0.0",
 	"private": true,
-	"description": "spool — toolset for micro frontends and modular frontend projects",
+	"description": "spool: toolset for micro frontends and modular frontend projects",
 	"type": "module",
 	"author": "Benjamin Kinczel <beni.kinczel@gmail.com>",
 	"license": "MIT",
 	"scripts": {
 		"build": "pnpm -r --filter \"./packages/*\" build",
-		"dev": "pnpm --filter @spool/cli dev",
-		"spool": "pnpm --filter @spool/cli exec spool",
+		"dev": "pnpm --filter @bkincz/spool dev",
+		"spool": "pnpm --filter @bkincz/spool exec spool",
 		"type-check": "pnpm -r --filter \"./packages/*\" type-check",
 		"test:run": "pnpm -r --filter \"./packages/*\" test:run",
 		"test:coverage": "pnpm -r --filter \"./packages/*\" test:coverage",
@@ -20,7 +20,7 @@
 		"clean": "pnpm -r exec rimraf dist"
 	},
 	"engines": {
-		"node": ">=20"
+		"node": "^20.19.0 || >=22.12.0"
 	},
 	"packageManager": "pnpm@11.6.0",
 	"devDependencies": {

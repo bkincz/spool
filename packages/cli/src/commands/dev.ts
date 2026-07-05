@@ -3,7 +3,6 @@
  ***************************************************************************************************/
 import { requireWorkspace } from '../core/workspace.js'
 import { devAll } from '../core/orchestrator.js'
-import { fail } from '../util/logger.js'
 
 /*
  *   DEV
@@ -13,7 +12,7 @@ export interface DevOptions {
 }
 
 export async function dev(opts: DevOptions): Promise<void> {
-	const ws = await requireWorkspace().catch((e: Error) => fail(e.message))
+	const ws = await requireWorkspace()
 	const only = opts.only
 		?.split(',')
 		.map(s => s.trim())

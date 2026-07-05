@@ -5,3 +5,7 @@ coverage/
 .DS_Store
 *.log
 .spool/
+
+# Copied from the repo root at publish time (prepublishOnly)
+packages/cli/README.md
+packages/cli/LICENSE

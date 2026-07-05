@@ -32,17 +32,17 @@ export async function writeFiles(
 	files: FileMap,
 	opts: { force?: boolean } = {}
 ): Promise<WriteResult> {
-	const written: string[] = []
-	const skipped: string[] = []
-	for (const [rel, content] of Object.entries(files)) {
-		const target = join(baseDir, rel)
-		if (!opts.force && (await exists(target))) {
-			skipped.push(rel)
-			continue
-		}
-		await mkdir(dirname(target), { recursive: true })
-		await writeFile(target, content, 'utf8')
-		written.push(rel)
+	const results = await Promise.all(
+		Object.entries(files).map(async ([rel, content]): Promise<[string, boolean]> => {
+			const target = join(baseDir, rel)
+			if (!opts.force && (await exists(target))) return [rel, false]
+			await mkdir(dirname(target), { recursive: true })
+			await writeFile(target, content, 'utf8')
+			return [rel, true]
+		})
+	)
+	return {
+		written: results.filter(([, wrote]) => wrote).map(([rel]) => rel),
+		skipped: results.filter(([, wrote]) => !wrote).map(([rel]) => rel),
 	}
-	return { written, skipped }
 }

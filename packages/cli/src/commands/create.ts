@@ -6,6 +6,7 @@ import { existsSync } from 'node:fs'
 import * as p from '@clack/prompts'
 import pc from 'picocolors'
 import {
+	MANIFEST_FILE,
 	emptyManifest,
 	appPort,
 	validateName,
@@ -13,6 +14,7 @@ import {
 	type Manifest,
 } from '../core/config.js'
 import { workspaceFiles, appFiles } from '../core/generators.js'
+import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { run } from '../util/exec.js'
 import { log, fail } from '../util/logger.js'
@@ -48,14 +50,13 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 		return
 	}
 
-	// The target folder defaults to the workspace name (not the cwd), so that the
-	// `cd <name>` we print at the end actually lands in the scaffolded folder.
+	// Default the folder to the workspace name so the `cd <name>` hint at the
+	// end points at the right place.
 	const targetDir = opts.here ? process.cwd() : resolve(process.cwd(), dir ?? inputs.name)
-	if (existsSync(join(targetDir, 'spool.json'))) {
-		log.error(
+	if (existsSync(join(targetDir, MANIFEST_FILE))) {
+		fail(
 			`There is already a spool workspace in ${targetDir}. Pick another folder or remove it first.`
 		)
-		return
 	}
 
 	const manifest = buildManifest(inputs)
@@ -81,49 +82,54 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 /*
  *   STEPS
  ***************************************************************************************************/
+/** Prompt for a text answer, or null when the user cancels. */
+async function askText(options: Parameters<typeof p.text>[0]): Promise<string | null> {
+	const answer = await p.text(options)
+	return p.isCancel(answer) ? null : answer.trim()
+}
+
 async function resolveInputs(
 	dir: string | undefined,
 	opts: CreateOptions
 ): Promise<CreateInputs | null> {
-	let name = opts.name ?? (dir ? basename(resolve(process.cwd(), dir)) : undefined)
+	let name = opts.name
+	if (name === undefined && dir) {
+		name = basename(resolve(process.cwd(), dir))
+		// The name was inferred, not typed; blame the right thing.
+		const error = validateName(name, 'workspace name')
+		if (error) fail(`${error} (Derived from the folder name; pass --name to override.)`)
+	}
 	if (name === undefined) {
-		const answer = await p.text({
+		const answer = await askText({
 			message: 'Workspace name?',
 			placeholder: 'acme-frontend',
 			validate: v => validateName(v, 'workspace name'),
 		})
-		if (p.isCancel(answer)) return null
-		name = answer.trim()
-	} else {
-		ensureValid(name, 'workspace name')
+		if (answer === null) return null
+		name = answer
 	}
+	ensureValid(name, 'workspace name')
 
-	let hostName = opts.host
-	if (hostName === undefined) {
-		const answer = await p.text({
+	const hostName =
+		opts.host ??
+		(await askText({
 			message: 'Host (shell) app name?',
 			initialValue: 'shell',
 			validate: v => validateName(v, 'host name'),
-		})
-		if (p.isCancel(answer)) return null
-		hostName = answer.trim()
-	} else {
-		ensureValid(hostName, 'host name')
-	}
+		}))
+	if (hostName === null) return null
+	ensureValid(hostName, 'host name')
 
-	let remoteNames: string[]
-	if (opts.remotes !== undefined) {
-		remoteNames = splitList(opts.remotes)
-	} else {
-		const answer = await p.text({
+	const remotesRaw =
+		opts.remotes ??
+		(await askText({
 			message: 'Remote app names? (comma separated)',
 			placeholder: 'dashboard, profile',
 			initialValue: 'dashboard',
 			validate: validateRemoteList,
-		})
-		if (p.isCancel(answer)) return null
-		remoteNames = splitList(String(answer))
-	}
+		}))
+	if (remotesRaw === null) return null
+	const remoteNames = splitList(remotesRaw)
 	for (const remote of remoteNames) ensureValid(remote, 'remote name')
 
 	const names = [hostName, ...remoteNames]
@@ -152,12 +158,12 @@ async function resolveInputs(
 }
 
 async function scaffold(targetDir: string, manifest: Manifest): Promise<void> {
-	await writeFiles(targetDir, workspaceFiles(manifest))
-
-	const portOf = (name: string) => appPort(manifest, name)
-	for (const [name, app] of Object.entries(manifest.apps)) {
-		await writeFiles(join(targetDir, app.path), appFiles(manifest, name, app, portOf))
-	}
+	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest)))
+	await Promise.all(
+		Object.entries(manifest.apps).map(async ([name, app]) =>
+			writeFiles(join(targetDir, app.path), await formatFiles(appFiles(manifest, name, app)))
+		)
+	)
 }
 
 async function installDependencies(

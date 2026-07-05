@@ -3,7 +3,7 @@
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
 import { workspaceFiles, appFiles, hostWiringFiles } from '../core/generators.js'
-import { appPort, parseManifest, type Manifest } from '../core/config.js'
+import { parseManifest, type Manifest } from '../core/config.js'
 import { host, remote, makeManifest } from './helpers.js'
 
 /*
@@ -15,8 +15,6 @@ const manifest = (): Manifest =>
 		dashboard: remote(),
 	})
 
-const portOf = (m: Manifest) => (name: string) => appPort(m, name)
-
 /*
  *   WORKSPACE FILES
  ***************************************************************************************************/
@@ -27,14 +25,25 @@ describe('workspaceFiles', () => {
 		expect(Object.keys(files).sort()).toEqual(
 			[
 				'.gitignore',
+				'.prettierignore',
 				'.prettierrc',
 				'README.md',
 				'package.json',
 				'pnpm-workspace.yaml',
 				'spool.json',
+				'spool.vite.ts',
 				'tsconfig.base.json',
+				'tsconfig.json',
 			].sort()
 		)
+	})
+
+	it('ships the runtime helper that reads spool.json at config load time', () => {
+		const helper = files['spool.vite.ts']!
+		expect(helper).toContain('export function spoolApp')
+		expect(helper).toContain('spool.json')
+		expect(helper).toContain('SPOOL_REMOTE_')
+		expect(helper).toContain('mf-manifest.json')
 	})
 
 	it('writes spool.json as the manifest', () => {
@@ -57,15 +66,17 @@ describe('workspaceFiles', () => {
 		})
 	})
 
-	it('allows the esbuild build script in the pnpm workspace', () => {
+	it('allows the esbuild build script for both pnpm 10 and 11', () => {
 		expect(files['pnpm-workspace.yaml']).toContain('allowBuilds:')
 		expect(files['pnpm-workspace.yaml']).toContain('esbuild: true')
+		expect(files['pnpm-workspace.yaml']).toContain('onlyBuiltDependencies:')
+		expect(files['pnpm-workspace.yaml']).toContain('- esbuild')
 		expect(files['pnpm-workspace.yaml']).toContain('apps/*')
 	})
 
-	it('does not depend on the unpublished cli package', () => {
+	it('does not add the cli as a workspace dependency', () => {
 		const pkg = JSON.parse(files['package.json']!)
-		expect(pkg.devDependencies?.['@spool/cli']).toBeUndefined()
+		expect(pkg.devDependencies?.['@bkincz/spool']).toBeUndefined()
 		expect(pkg.scripts).toMatchObject({ dev: 'spool dev', build: 'spool build' })
 	})
 
@@ -137,7 +148,7 @@ describe('workspaceFiles (yarn)', () => {
  ***************************************************************************************************/
 describe('appFiles (host)', () => {
 	const m = manifest()
-	const files = appFiles(m, 'shell', m.apps.shell!, portOf(m))
+	const files = appFiles(m, 'shell', m.apps.shell!)
 
 	it('includes the host source and config', () => {
 		expect(Object.keys(files).sort()).toEqual(
@@ -154,11 +165,12 @@ describe('appFiles (host)', () => {
 		)
 	})
 
-	it('wires every remote into the vite config with its real port', () => {
-		expect(files['vite.config.ts']).toContain('name: "shell"')
-		expect(files['vite.config.ts']).toContain('http://localhost:5174/mf-manifest.json')
-		expect(files['vite.config.ts']).toContain('"dashboard"')
-		expect(files['vite.config.ts']).toContain('shared: ["react","react-dom"]')
+	it('reads its wiring from the runtime helper instead of baking it in', () => {
+		expect(files['vite.config.ts']).toContain('spoolApp("shell"')
+		expect(files['vite.config.ts']).toContain('from "../../spool.vite"')
+		// No generated federation config that could drift from spool.json.
+		expect(files['vite.config.ts']).not.toContain('localhost')
+		expect(files['vite.config.ts']).not.toContain('remotes:')
 	})
 
 	it('lazy-imports each remote in App.tsx', () => {
@@ -180,7 +192,7 @@ describe('appFiles (host)', () => {
  ***************************************************************************************************/
 describe('appFiles (host with no remotes)', () => {
 	const m = makeManifest({ shell: host() })
-	const files = appFiles(m, 'shell', m.apps.shell!, portOf(m))
+	const files = appFiles(m, 'shell', m.apps.shell!)
 
 	it('omits the remotes typing file', () => {
 		expect(files['src/remotes.d.ts']).toBeUndefined()
@@ -197,11 +209,10 @@ describe('appFiles (host with no remotes)', () => {
  ***************************************************************************************************/
 describe('appFiles (remote)', () => {
 	const m = manifest()
-	const files = appFiles(m, 'dashboard', m.apps.dashboard!, portOf(m))
+	const files = appFiles(m, 'dashboard', m.apps.dashboard!)
 
-	it('exposes a remote entry instead of consuming remotes', () => {
-		expect(files['vite.config.ts']).toContain('filename: "remoteEntry.js"')
-		expect(files['vite.config.ts']).toContain('"./App": "./src/App.tsx"')
+	it('derives its exposes from the manifest at startup', () => {
+		expect(files['vite.config.ts']).toContain('spoolApp("dashboard"')
 		expect(files['src/remotes.d.ts']).toBeUndefined()
 	})
 
@@ -217,17 +228,16 @@ describe('appFiles (remote)', () => {
  *   HOST WIRING FILES
  ***************************************************************************************************/
 describe('hostWiringFiles', () => {
-	it('regenerates the vite config and typings when a host has remotes', () => {
+	it('regenerates only the typings when a host has remotes', () => {
 		const m = manifest()
-		const files = hostWiringFiles(m, 'shell', m.apps.shell!, portOf(m))
-		expect(Object.keys(files).sort()).toEqual(['src/remotes.d.ts', 'vite.config.ts'])
+		const files = hostWiringFiles(m.apps.shell!)
+		expect(Object.keys(files)).toEqual(['src/remotes.d.ts'])
 		expect(files['src/remotes.d.ts']).toContain('declare module "dashboard/App"')
 	})
 
-	it('omits typings when a host has no remotes', () => {
+	it('writes nothing when a host has no remotes', () => {
 		const m = makeManifest({ shell: host() })
-		const files = hostWiringFiles(m, 'shell', m.apps.shell!, portOf(m))
-		expect(Object.keys(files)).toEqual(['vite.config.ts'])
+		expect(hostWiringFiles(m.apps.shell!)).toEqual({})
 	})
 })
 
@@ -239,8 +249,8 @@ describe('generated content', () => {
 		const m = manifest()
 		const all = [
 			...Object.values(workspaceFiles(m)),
-			...Object.values(appFiles(m, 'shell', m.apps.shell!, portOf(m))),
-			...Object.values(appFiles(m, 'dashboard', m.apps.dashboard!, portOf(m))),
+			...Object.values(appFiles(m, 'shell', m.apps.shell!)),
+			...Object.values(appFiles(m, 'dashboard', m.apps.dashboard!)),
 		].join('\n')
 		expect(all).not.toContain('—')
 	})

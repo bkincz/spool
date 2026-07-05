@@ -77,8 +77,38 @@ describe('parseManifest', () => {
 		expect(() => parseManifest({ name: 'acme', apps: { x: host({ port: -1 }) } })).toThrow()
 	})
 
-	it('rejects an unsupported schema version', () => {
-		expect(() => parseManifest({ name: 'acme', version: 2, apps: {} })).toThrow()
+	it('rejects an unsupported schema version with an upgrade hint', () => {
+		expect(() => parseManifest({ name: 'acme', version: 2, apps: {} })).toThrow('Upgrade spool')
+	})
+
+	it('rejects an unknown top-level key instead of silently dropping it', () => {
+		expect(() => parseManifest({ name: 'acme', apps: {}, sharde: ['react'] })).toThrow(/sharde/)
+	})
+
+	it('rejects a typoed app key such as "expose"', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { dash: { ...remote(), expose: { './App': './src/App.tsx' } } },
+			})
+		).toThrow(/expose/)
+	})
+
+	it('accepts a deployed url on a remote and rejects a malformed one', () => {
+		const ok = parseManifest({
+			name: 'acme',
+			apps: { dash: { ...remote(), url: 'https://cdn.example.com/mf-manifest.json' } },
+		})
+		expect(ok.apps.dash?.url).toBe('https://cdn.example.com/mf-manifest.json')
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { dash: { ...remote(), url: 'not a url' } } })
+		).toThrow()
+	})
+
+	it('reports the offending path in a readable message', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { dash: { ...remote(), port: 'high' } } })
+		).toThrow(/apps\.dash\.port/)
 	})
 
 	it('rejects a name with a path traversal segment', () => {

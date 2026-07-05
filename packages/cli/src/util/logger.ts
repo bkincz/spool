@@ -2,6 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import pc from 'picocolors'
+import { CliError } from './errors.js'
 
 /*
  *   LOGGER
@@ -17,7 +18,7 @@ export const log = {
 	plain: (msg: string) => console.log(msg),
 }
 
+/** Abort the current command. index.ts prints the message and sets the exit code. */
 export function fail(msg: string): never {
-	log.error(msg)
-	process.exit(1)
+	throw new CliError(msg)
 }

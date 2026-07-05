@@ -3,11 +3,13 @@
  ***************************************************************************************************/
 import { join } from 'node:path'
 import { requireWorkspace, saveManifest } from '../core/workspace.js'
-import { appPort, validateName, type AppConfig, type Manifest } from '../core/config.js'
-import { appFiles, hostWiringFiles } from '../core/generators.js'
+import { HELPER_FILE, validateName, type AppConfig, type Manifest } from '../core/config.js'
+import { appFiles, helperFile, hostWiringFiles } from '../core/generators.js'
+import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { run } from '../util/exec.js'
 import { log, fail } from '../util/logger.js'
+import { pascalCase } from '../util/names.js'
 
 /*
  *   TYPES
@@ -23,7 +25,7 @@ export interface AddOptions {
  *   ADD
  ***************************************************************************************************/
 export async function add(name: string, opts: AddOptions): Promise<void> {
-	const ws = await requireWorkspace().catch((e: Error) => fail(e.message))
+	const ws = await requireWorkspace()
 	const { manifest } = ws
 
 	const nameError = validateName(name, 'app name')
@@ -36,6 +38,9 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 	}
 
 	const type: AppConfig['type'] = opts.type === 'host' ? 'host' : 'remote'
+	if (type === 'host' && opts.host) {
+		log.warn(`--host only applies when adding a remote; ignoring --host ${opts.host}.`)
+	}
 	const app: AppConfig = {
 		type,
 		path: `apps/${name}`,
@@ -46,19 +51,26 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 	manifest.apps[name] = app
 
 	const host = type === 'remote' ? wireIntoHost(manifest, name, opts.host) : undefined
-	const portOf = (target: string) => appPort(manifest, target)
 
-	await writeFiles(join(ws.root, app.path), appFiles(manifest, name, app, portOf))
+	// Restore the runtime helper if it's missing (workspaces from older spool
+	// versions). The new app's vite config imports it.
+	const restored = await writeFiles(ws.root, await formatFiles(helperFile()))
+	if (restored.written.length) {
+		log.warn(
+			`${HELPER_FILE} was missing and has been restored. Apps scaffolded before it existed keep their old baked vite configs; re-create them or port them to the helper.`
+		)
+	}
+
+	await writeFiles(join(ws.root, app.path), await formatFiles(appFiles(manifest, name, app)))
 	if (host) {
-		const config = hostWiringFiles(manifest, host.name, host.app, portOf)
-		await writeFiles(join(ws.root, host.app.path), config, { force: true })
+		// Vite configs read spool.json at startup; only typings need updating.
+		const typings = await formatFiles(hostWiringFiles(host.app))
+		await writeFiles(join(ws.root, host.app.path), typings, { force: true })
 	}
 	await saveManifest(ws)
 	log.success(`added ${type} ${name} on port ${app.port}`)
 
-	// The host's federation config and typings are regenerated, but its App.tsx
-	// is left untouched so we never clobber the user's layout. Tell them exactly
-	// how to mount the new remote.
+	// App.tsx is never touched, so print how to mount the new remote instead.
 	if (host) printMountHint(name, host.name)
 
 	const pm = ws.manifest.packageManager
@@ -115,17 +127,8 @@ function nextFreePort(manifest: Manifest): number {
 	return port
 }
 
-/** PascalCase a name for use as a React component identifier. */
-function componentName(name: string): string {
-	return name
-		.split('-')
-		.filter(Boolean)
-		.map(word => word[0]!.toUpperCase() + word.slice(1))
-		.join('')
-}
-
 function printMountHint(remote: string, hostName: string): void {
-	const comp = componentName(remote)
+	const comp = pascalCase(remote)
 	log.step(`To mount it, edit apps/${hostName}/src/App.tsx:`)
 	log.plain(`    const ${comp} = lazy(() => import("${remote}/App"))`)
 	log.plain(`    // then render <${comp} /> inside a <Suspense> boundary`)

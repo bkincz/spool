@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync } from 'node:fs'
+import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { diagnose } from '../core/doctor.js'
 import { freshDir, removeDir, makeWorkspace, host, remote } from './helpers.js'
@@ -15,6 +15,8 @@ let root: string
 
 beforeEach(() => {
 	root = freshDir('spool-doctor-')
+	// Every workspace ships this helper; its absence is itself a diagnostic.
+	writeFileSync(join(root, 'spool.vite.ts'), '// stub\n')
 })
 
 afterEach(() => {
@@ -94,6 +96,58 @@ describe('diagnose', () => {
 	it('warns about a remote no host imports', () => {
 		const ws = withFolders({ shell: host(), dashboard: remote() })
 		const issue = diagnose(ws).find(i => i.message.includes('No host imports'))
+		expect(issue).toMatchObject({ level: 'warn', app: 'dashboard' })
+	})
+
+	/*
+	 *   RUNTIME HELPER
+	 ***************************************************************************************************/
+	it('flags a missing spool.vite.ts helper', () => {
+		rmSync(join(root, 'spool.vite.ts'))
+		const ws = withFolders({ shell: host({ remotes: ['dashboard'] }), dashboard: remote() })
+		const issue = diagnose(ws).find(i => i.message.includes('spool.vite.ts'))
+		expect(issue).toMatchObject({ level: 'error' })
+	})
+
+	/*
+	 *   SHARED DEPS
+	 ***************************************************************************************************/
+	const appPackageJson = (path: string, deps: Record<string, string>) => {
+		writeFileSync(
+			join(root, path, 'package.json'),
+			JSON.stringify({ name: 'x', dependencies: deps })
+		)
+	}
+
+	it('warns when an app is missing a shared dep', () => {
+		const ws = withFolders({ shell: host({ remotes: ['dashboard'] }), dashboard: remote() })
+		appPackageJson('apps/shell', { react: '^18.3.1', 'react-dom': '^18.3.1' })
+		appPackageJson('apps/dashboard', { react: '^18.3.1' })
+		const issue = diagnose(ws).find(i => i.message.includes('"react-dom" is not in'))
+		expect(issue).toMatchObject({ level: 'warn', app: 'dashboard' })
+	})
+
+	it('warns when apps disagree on a shared dep version', () => {
+		const ws = withFolders({ shell: host({ remotes: ['dashboard'] }), dashboard: remote() })
+		appPackageJson('apps/shell', { react: '^18.3.1', 'react-dom': '^18.3.1' })
+		appPackageJson('apps/dashboard', { react: '^19.0.0', 'react-dom': '^18.3.1' })
+		const issue = diagnose(ws).find(i => i.message.includes('mismatched versions'))
+		expect(issue).toMatchObject({ level: 'warn' })
+		expect(issue?.message).toContain('react')
+	})
+
+	it('stays quiet when shared deps are present and agree', () => {
+		const ws = withFolders({ shell: host({ remotes: ['dashboard'] }), dashboard: remote() })
+		appPackageJson('apps/shell', { react: '^18.3.1', 'react-dom': '^18.3.1' })
+		appPackageJson('apps/dashboard', { react: '^18.3.1', 'react-dom': '^18.3.1' })
+		expect(diagnose(ws)).toEqual([])
+	})
+
+	it('warns instead of staying silent when a package.json is unparsable', () => {
+		const ws = withFolders({ shell: host({ remotes: ['dashboard'] }), dashboard: remote() })
+		appPackageJson('apps/shell', { react: '^18.3.1', 'react-dom': '^18.3.1' })
+		writeFileSync(join(root, 'apps/dashboard/package.json'), '{ not json')
+		const issue = diagnose(ws).find(i => i.message.includes('could not be parsed'))
 		expect(issue).toMatchObject({ level: 'warn', app: 'dashboard' })
 	})
 

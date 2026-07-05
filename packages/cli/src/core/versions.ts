@@ -2,9 +2,9 @@
  *   TOOLCHAIN VERSIONS
  ***************************************************************************************************/
 /**
- * Pinned dependency ranges for every scaffolded app, kept in one place so a
- * toolchain bump is a single edit and `spool doctor` (or a future upgrade
- * command) has one source of truth to compare a workspace against.
+ * Dependency ranges for every scaffolded app, kept in one place so a
+ * toolchain bump is a single edit. React is pinned to 18 on purpose; bump it
+ * deliberately and let the CI smoke job verify the result.
  */
 export const TOOLCHAIN = {
 	react: '^18.3.1',

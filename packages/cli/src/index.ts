@@ -1,22 +1,28 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
+import { createRequire } from 'node:module'
 import { Command } from 'commander'
 import { create } from './commands/create.js'
 import { add } from './commands/add.js'
 import { dev } from './commands/dev.js'
 import { build } from './commands/build.js'
 import { doctor } from './commands/doctor.js'
+import { CliError } from './util/errors.js'
+import { log } from './util/logger.js'
 
 /*
  *   PROGRAM
  ***************************************************************************************************/
+// Read the version from package.json so it can't drift from what ships.
+const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
+
 const program = new Command()
 
 program
 	.name('spool')
 	.description('Toolset for micro frontends and modular frontend projects')
-	.version('0.1.0')
+	.version(version)
 
 /*
  *   COMMANDS
@@ -55,10 +61,15 @@ program
 
 program
 	.command('doctor')
-	.description('Check manifest/config drift and shared-dep issues')
+	.description('Check ports, app folders, federation wiring and shared deps')
 	.action(doctor)
 
-program.parseAsync().catch(err => {
-	console.error(err instanceof Error ? err.message : err)
-	process.exit(1)
+/*
+ *   ENTRY POINT
+ ***************************************************************************************************/
+// The single exit point for failures. Everything below throws.
+program.parseAsync().catch((err: unknown) => {
+	if (err instanceof CliError) log.error(err.message)
+	else console.error(err)
+	process.exitCode = 1
 })

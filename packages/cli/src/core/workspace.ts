@@ -5,6 +5,8 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { MANIFEST_FILE, parseManifest, type Manifest } from './config.js'
+import { formatFile } from './format.js'
+import { CliError } from '../util/errors.js'
 
 /*
  *   TYPES
@@ -41,7 +43,7 @@ export async function loadWorkspace(cwd = process.cwd()): Promise<Workspace | nu
 export async function requireWorkspace(cwd = process.cwd()): Promise<Workspace> {
 	const ws = await loadWorkspace(cwd)
 	if (!ws) {
-		throw new Error(
+		throw new CliError(
 			`No ${MANIFEST_FILE} found. Run \`spool create\` first, or cd into a spool workspace.`
 		)
 	}
@@ -49,5 +51,8 @@ export async function requireWorkspace(cwd = process.cwd()): Promise<Workspace> 
 }
 
 export async function saveManifest(ws: Workspace): Promise<void> {
-	await writeFile(ws.manifestPath, `${JSON.stringify(ws.manifest, null, 2)}\n`, 'utf8')
+	// Same formatter as the scaffold path, so `spool add` rewrites never
+	// churn the manifest's style.
+	const content = await formatFile(MANIFEST_FILE, JSON.stringify(ws.manifest))
+	await writeFile(ws.manifestPath, content, 'utf8')
 }

@@ -3,6 +3,7 @@
  ***************************************************************************************************/
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { log, fail } from '../util/logger.js'
+import { CliError } from '../util/errors.js'
 
 /*
  *   TEST SETUP
@@ -36,13 +37,8 @@ describe('log', () => {
  *   FAIL
  ***************************************************************************************************/
 describe('fail', () => {
-	it('logs the message and exits with code 1', () => {
-		const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-		const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
-		// process.exit is stubbed, so fail returns here instead of ending the run
-		const invoke = fail as (msg: string) => void
-		invoke('nope')
-		expect(err).toHaveBeenCalledOnce()
-		expect(exit).toHaveBeenCalledWith(1)
+	it('throws a CliError carrying the message instead of exiting', () => {
+		expect(() => fail('nope')).toThrow(CliError)
+		expect(() => fail('nope')).toThrow('nope')
 	})
 })

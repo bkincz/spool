@@ -1,7 +1,7 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { devAll, buildAll } from '../core/orchestrator.js'
 import { run, spawnProcess, killTree } from '../util/exec.js'
@@ -22,20 +22,24 @@ vi.mock('../util/net.js', () => ({
 	waitForManifest: vi.fn().mockResolvedValue(undefined),
 }))
 
+type FakeStream = EventEmitter & { destroy: ReturnType<typeof vi.fn> }
+
 interface FakeChild extends EventEmitter {
 	pid: number
-	stdout: EventEmitter
-	stderr: EventEmitter
+	stdout: FakeStream
+	stderr: FakeStream
 	kill: ReturnType<typeof vi.fn>
 }
 
 const children: FakeChild[] = []
 
+const fakeStream = (): FakeStream => Object.assign(new EventEmitter(), { destroy: vi.fn() })
+
 function fakeChild(): FakeChild {
 	const child = new EventEmitter() as FakeChild
 	child.pid = 1000 + children.length
-	child.stdout = new EventEmitter()
-	child.stderr = new EventEmitter()
+	child.stdout = fakeStream()
+	child.stderr = fakeStream()
 	child.kill = vi.fn()
 	return child
 }
@@ -43,8 +47,6 @@ function fakeChild(): FakeChild {
 /*
  *   TEST SETUP
  ***************************************************************************************************/
-let exitSpy: MockInstance<typeof process.exit>
-
 beforeEach(() => {
 	children.length = 0
 	vi.mocked(spawnProcess).mockImplementation(() => {
@@ -52,7 +54,8 @@ beforeEach(() => {
 		children.push(child)
 		return child as never
 	})
-	exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+	// Guard: signal handlers exit directly; keep the test runner alive.
+	vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 	vi.spyOn(log, 'step').mockImplementation(() => {})
 	vi.spyOn(log, 'success').mockImplementation(() => {})
 	vi.spyOn(log, 'warn').mockImplementation(() => {})
@@ -92,19 +95,33 @@ describe('devAll', () => {
 		expect(cwds[1]).toContain('shell')
 	})
 
-	it('tears everything down when a child crashes', async () => {
+	it('tears everything down and rejects when a child crashes', async () => {
 		const ws = makeWorkspace('/ws', {
 			shell: host({ remotes: ['dashboard'] }),
 			dashboard: remote(),
 		})
-		void devAll(ws)
+		const running = devAll(ws)
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
 
 		children[0]!.emit('exit', 1)
 
-		await vi.waitFor(() => expect(exitSpy).toHaveBeenCalledWith(1))
-		expect(log.error).toHaveBeenCalledWith(expect.stringContaining('stopped unexpectedly'))
+		await expect(running).rejects.toThrow('stopped unexpectedly')
 		expect(killTree).toHaveBeenCalled()
+		// Pipe handles must be released even if a child outlives its SIGTERM,
+		// or the CLI hangs instead of exiting after the crash.
+		expect(children[1]!.stdout.destroy).toHaveBeenCalled()
+	})
+
+	it('warns when --only leaves a host without its remotes', async () => {
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+		void devAll(ws, ['shell'])
+		await vi.waitFor(() =>
+			expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))
+		)
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not selected'))
 	})
 
 	it('only runs the apps named in the only filter', async () => {
