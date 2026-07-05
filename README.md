@@ -6,7 +6,7 @@ spool is a small CLI for building micro frontends. It scaffolds a monorepo of Mo
 
 ## Requirements
 
-- Node 20.19+ or 22.12+ (same as Vite)
+- Node 22.12 or newer
 - pnpm, npm, or yarn
 
 ## Install

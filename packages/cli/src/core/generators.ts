@@ -97,8 +97,8 @@ function gitignore(m: Manifest): string {
 	return `${base}\n# Yarn Berry\n.yarn/*\n!.yarn/patches\n!.yarn/plugins\n!.yarn/releases\n!.yarn/sdks\n!.yarn/versions\n.pnp.*\n`
 }
 
-/** Matches vite's own engines range; also covers import.meta.dirname (20.11+). */
-const NODE_RANGE = '^20.19.0 || >=22.12.0'
+/** Within vite's supported range; Node 20 is EOL and pnpm 11 needs 22.13+. */
+const NODE_RANGE = '>=22.12.0'
 
 function workspacePackageJson(m: Manifest): string {
 	const pkg: Record<string, unknown> = {

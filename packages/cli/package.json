@@ -44,7 +44,7 @@
 		"test:coverage": "vitest run --coverage"
 	},
 	"engines": {
-		"node": "^20.19.0 || >=22.12.0"
+		"node": ">=22.12.0"
 	},
 	"dependencies": {
 		"@clack/prompts": "^0.7.0",
