@@ -106,6 +106,27 @@ spool add billing --host shell  # wire into a specific host
 
 Adding a remote updates `spool.json` and the host's typings. Your `App.tsx` is never touched; spool prints the exact import and mount snippet to paste in.
 
+### `spool deploy`
+
+Runs each app's `deploy` command from `spool.json`, remotes before hosts, in the app's folder. spool orchestrates; the command itself is yours, so any host works: Cloudflare, Netlify, Vercel, S3, rsync to a box, an internal script.
+
+```bash
+spool build
+spool deploy                 # everything with a deploy command
+spool deploy --only home     # redeploy a single app
+```
+
+Apps without a `deploy` command are skipped with a warning. A failing command stops the run and names the app. After deploying a remote that has no `url` yet, spool reminds you to set one.
+
+Preset commands to copy into `spool.json`:
+
+| Target | `deploy` command |
+|---|---|
+| Cloudflare Pages | `wrangler pages deploy dist --project-name=<project>` |
+| Netlify | `netlify deploy --prod --dir=dist` |
+| Vercel | `vercel deploy dist --prod` |
+| S3 + CloudFront | `aws s3 sync dist s3://<bucket> --delete` |
+
 ### `spool remove <name>`
 
 Removes an app: drops it from `spool.json`, unwires it from every host, and regenerates the hosts' typings.
@@ -120,6 +141,21 @@ If a host's `App.tsx` still imports the removed remote, spool reminds you to tak
 | Option | Default | Description |
 |---|---|---|
 | `--files` | off | Also delete the app folder |
+
+### `spool ci`
+
+Generates one GitHub Actions workflow per app that has a `deploy` command, written to `.github/workflows/deploy-<app>.yml`. Each workflow is path-filtered, so pushing a change to one app builds and deploys only that app. Changes to workspace-level files (`spool.json`, `spool.vite.ts`, the lockfile) trigger every app, since they can affect any of them.
+
+```bash
+spool ci            # writes missing workflows, leaves existing ones alone
+spool ci --force    # regenerate, e.g. after changing a deploy command
+```
+
+Notes:
+
+- The deploy command is copied into the workflow at generation time. Rerun `spool ci --force` after changing it in `spool.json`.
+- Add the secrets your deploy commands need (like `CLOUDFLARE_API_TOKEN`) to the repository; each workflow has a commented `env` block showing where they go.
+- Workflows trigger on pushes to `main` and support manual runs from the Actions tab. Edit the branch list in the file if you release from elsewhere.
 
 ### `spool doctor`
 
@@ -157,6 +193,7 @@ Everything lives in one `spool.json` at the workspace root. Each app's `vite.con
 | `apps.<name>.path` | App folder, relative to the root |
 | `apps.<name>.port` | Dev server port |
 | `apps.<name>.url` | Optional. The remote's deployed `mf-manifest.json`, used by host production builds |
+| `apps.<name>.deploy` | Optional. Shell command `spool deploy` runs in the app folder |
 | `apps.<name>.remotes` | Remotes a host consumes |
 | `apps.<name>.exposes` | Modules a remote exposes, as `importName: sourcePath` |
 
@@ -167,11 +204,11 @@ Notes:
 
 ## Deploying remotes
 
-Each app builds to a plain static site, so any static host works. Deploy each remote, set its `url` in `spool.json` to the deployed `mf-manifest.json`, rebuild the host, and deploy that too:
+Each app builds to a plain static site, so any static host works. Give each app a `deploy` command, deploy the remotes, set each remote's `url` to its deployed `mf-manifest.json`, then rebuild and deploy the host:
 
 ```bash
 spool build
-wrangler pages deploy apps/dashboard/dist   # or netlify deploy, vercel, S3, ...
+spool deploy
 ```
 
 A host looks up each remote in this order:
@@ -184,6 +221,32 @@ Notes:
 
 - Hosts fetch remote assets cross-origin, and static hosts send no CORS headers by default. Every scaffolded remote ships a `public/_headers` file with `Access-Control-Allow-Origin: *`, which Cloudflare Pages and Netlify pick up automatically. On Vercel, set the same header in `vercel.json` instead.
 - The remote's manifest URL is always `<origin>/mf-manifest.json`; production builds emit that file into `dist`.
+
+## Sharing state between remotes
+
+Remotes should not import each other's code, but they often need shared state: a player bar that any view can start, a cart that every surface reads. The pattern that works:
+
+1. Add a state library to `shared` in `spool.json` so federation loads one copy. [@bkincz/clutch](https://github.com/bkincz/clutch) has first-class support for this:
+
+```jsonc
+"shared": ["react", "react-dom", "@bkincz/clutch", "@bkincz/clutch/react"]
+```
+
+2. Give each app its own copy of a small store module built on `sharedMachine`, which returns the same instance to every app on the page:
+
+```typescript
+import { createMachine, sharedMachine } from '@bkincz/clutch'
+
+export const playerMachine = sharedMachine(
+  'app:player',
+  () => createMachine<PlayerState>({ initialState }),
+  { contract: 1 },
+)
+```
+
+3. Bump `contract` when the state shape changes. Apps deployed against different shapes warn at runtime instead of corrupting each other's state.
+
+The [live demo](https://spool-demo-shell.pages.dev) runs this pattern: its browse view, search, and player bar are separate deployments sharing one player machine.
 
 ## What you get
 

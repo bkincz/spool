@@ -63,7 +63,6 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 
 	await writeFiles(join(ws.root, app.path), await formatFiles(appFiles(manifest, name, app)))
 	if (host) {
-		// Vite configs read spool.json at startup; only typings need updating.
 		const typings = await formatFiles(hostWiringFiles(host.app))
 		await writeFiles(join(ws.root, host.app.path), typings, { force: true })
 	}

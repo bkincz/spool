@@ -136,6 +136,14 @@ describe('diagnose', () => {
 		expect(issue?.message).toContain('react')
 	})
 
+	it('checks subpath share entries against their package, not the subpath', () => {
+		const ws = withFolders({ dashboard: remote() })
+		ws.manifest.shared = ['react', '@bkincz/clutch', '@bkincz/clutch/react']
+		appPackageJson('apps/dashboard', { react: '^18.3.1', '@bkincz/clutch': '^3.0.0' })
+		const issues = diagnose(ws).filter(i => i.message.includes('Shared dep'))
+		expect(issues).toEqual([])
+	})
+
 	it('stays quiet when shared deps are present and agree', () => {
 		const ws = withFolders({ shell: host({ remotes: ['dashboard'] }), dashboard: remote() })
 		appPackageJson('apps/shell', { react: '^18.3.1', 'react-dom': '^18.3.1' })

@@ -94,6 +94,17 @@ describe('parseManifest', () => {
 		).toThrow(/expose/)
 	})
 
+	it('accepts a deploy command on any app and rejects a non-string one', () => {
+		const ok = parseManifest({
+			name: 'acme',
+			apps: { dash: { ...remote(), deploy: 'wrangler pages deploy dist' } },
+		})
+		expect(ok.apps.dash?.deploy).toBe('wrangler pages deploy dist')
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { dash: { ...remote(), deploy: 42 } } })
+		).toThrow(/apps\.dash\.deploy/)
+	})
+
 	it('accepts a deployed url on a remote and rejects a malformed one', () => {
 		const ok = parseManifest({
 			name: 'acme',

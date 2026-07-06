@@ -6,7 +6,8 @@ import type { ChildProcess } from 'node:child_process'
 import pc from 'picocolors'
 import type { Workspace } from './workspace.js'
 import type { AppConfig } from './config.js'
-import { run, spawnProcess, killTree } from '../util/exec.js'
+import { existsSync } from 'node:fs'
+import { run, runShell, spawnProcess, killTree } from '../util/exec.js'
 import { waitForManifest } from '../util/net.js'
 import { CliError } from '../util/errors.js'
 import { log } from '../util/logger.js'
@@ -86,8 +87,7 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 		shuttingDown = true
 		for (const child of children) {
 			killTree(child)
-			// killTree doesn't wait on POSIX. A child that survives SIGTERM
-			// would hold these pipes open and keep this process alive.
+
 			child.stdout?.destroy()
 			child.stderr?.destroy()
 		}
@@ -103,8 +103,7 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 		const child = spawnApp(ws, named, COLORS[colorIndex % COLORS.length]!)
 		child.on('exit', code => {
 			if (shuttingDown || code === 0 || code === null) return
-			// Defer so a Ctrl+C that takes this child down with us wins the race
-			// and we stay quiet, rather than reporting it as a crash.
+
 			setImmediate(() => {
 				if (shuttingDown) return
 				stopAll()
@@ -179,6 +178,45 @@ export async function buildAll(ws: Workspace, only?: string[]): Promise<void> {
 		}
 	}
 	log.success(`built ${ordered.length} app(s)`)
+}
+
+/*
+ *   DEPLOY
+ ***************************************************************************************************/
+export async function deployAll(ws: Workspace, only?: string[]): Promise<void> {
+	const apps = selectApps(ws, only)
+	const ordered = [...remotesOf(apps), ...hostsOf(apps)]
+	const deployable = ordered.filter(a => a.app.deploy)
+
+	for (const { name } of ordered.filter(a => !a.app.deploy)) {
+		log.warn(`${name} has no "deploy" command in spool.json; skipping it.`)
+	}
+	if (!deployable.length) {
+		throw new CliError(
+			'Nothing to deploy. Give each app a "deploy" command in spool.json, e.g. "wrangler pages deploy dist".'
+		)
+	}
+
+	for (const { name, app } of deployable) {
+		const dir = join(ws.root, app.path)
+		if (!existsSync(join(dir, 'dist'))) {
+			log.warn(
+				`${name} has no dist folder. Run \`spool build\` first if its deploy expects one.`
+			)
+		}
+		log.step(`deploying ${pc.bold(name)} (${app.type})`)
+		try {
+			await runShell(app.deploy!, { cwd: dir })
+		} catch {
+			throw new CliError(`Deploy failed for "${name}". Its command: ${app.deploy}`)
+		}
+		if (app.type === 'remote' && !app.url) {
+			log.warn(
+				`${name} has no "url" in spool.json, so host production builds still point at localhost. Set it to the deployed mf-manifest.json.`
+			)
+		}
+	}
+	log.success(`deployed ${deployable.length} app(s)`)
 }
 
 function filterBuildCommand(pm: Workspace['manifest']['packageManager'], name: string): string {

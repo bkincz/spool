@@ -1,5 +1,38 @@
 # Changelog
 
+## 1.3.0 - 2026-07-06
+
+Added `spool deploy`. Each app gets an optional `deploy` command in
+`spool.json`, a shell command spool runs in the app's folder, remotes before
+hosts. spool owns the ordering, `--only` filtering, and failure reporting; the
+command is yours, so any target works and different apps can deploy to
+different hosts. Apps without a command are skipped with a warning, and
+deploying a remote that has no `url` yet prints a reminder to set one. The
+README has preset commands for Cloudflare Pages, Netlify, Vercel, and S3.
+
+Added `spool ci`: generates one path-filtered GitHub Actions workflow per
+deployable app, so pushing a change to one app builds and deploys only that
+app. Workspace-level files trigger every app. Deploy commands are copied from
+`spool.json` into the workflow where you can read them; rerun
+`spool ci --force` after changing one. Existing workflow files are never
+overwritten without `--force`.
+
+Scaffolded pnpm workspaces now pin `packageManager` in package.json, so
+corepack and the generated workflows resolve the same pnpm version.
+
+Scaffolds now use React 19. Verified end to end: a React 19 workspace
+type-checks, builds, and serves its remotes over Module Federation with
+shared singletons.
+
+Fixed: scaffolded apps now include `@types/node`, and the workspace root gets
+`typescript` and `@types/node` dev dependencies. Without them `tsc --noEmit`
+failed on the vite config and `spool.vite.ts`, which use node builtins. The
+CI smoke job now type-checks the scaffolded workspace so this stays true.
+
+Fixed: `spool doctor` no longer flags subpath share entries (like
+`@bkincz/clutch/react`) as missing dependencies; it now checks the package
+they belong to.
+
 ## 1.2.0 - 2026-07-06
 
 Added `spool remove <name>`: drops an app from `spool.json`, unwires it from

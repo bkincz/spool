@@ -8,6 +8,8 @@ import { add } from './commands/add.js'
 import { remove } from './commands/remove.js'
 import { dev } from './commands/dev.js'
 import { build } from './commands/build.js'
+import { deploy } from './commands/deploy.js'
+import { ci } from './commands/ci.js'
 import { doctor } from './commands/doctor.js'
 import { CliError } from './util/errors.js'
 import { log } from './util/logger.js'
@@ -15,7 +17,6 @@ import { log } from './util/logger.js'
 /*
  *   PROGRAM
  ***************************************************************************************************/
-// Read the version from package.json so it can't drift from what ships.
 const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
 
 const program = new Command()
@@ -62,9 +63,21 @@ program
 
 program
 	.command('build')
-	.description('Coordinated production build (remotes before hosts)')
+	.description('Build every app for production (remotes before hosts)')
 	.option('--only <list>', 'comma-separated subset of apps')
 	.action(build)
+
+program
+	.command('deploy')
+	.description("Run each app's deploy command (remotes before hosts)")
+	.option('--only <list>', 'comma-separated subset of apps')
+	.action(deploy)
+
+program
+	.command('ci')
+	.description('Generate per-app GitHub deploy workflows with path filters')
+	.option('--force', 'overwrite existing workflow files')
+	.action(ci)
 
 program
 	.command('doctor')

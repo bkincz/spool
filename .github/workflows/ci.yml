@@ -124,6 +124,11 @@ jobs:
               working-directory: ${{ runner.temp }}/smoke
               run: pnpm install --no-frozen-lockfile
 
+            - name: Type-check workspace
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: pnpm -r exec tsc --noEmit
+
             - name: Doctor
               shell: bash
               working-directory: ${{ runner.temp }}/smoke

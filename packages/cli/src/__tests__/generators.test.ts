@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
-import { workspaceFiles, appFiles, hostWiringFiles } from '../core/generators.js'
+import { workspaceFiles, appFiles, hostWiringFiles, ciWorkflows } from '../core/generators.js'
 import { parseManifest, type Manifest } from '../core/config.js'
 import { host, remote, makeManifest } from './helpers.js'
 
@@ -88,6 +88,10 @@ describe('workspaceFiles', () => {
 		expect(files['pnpm-workspace.yaml']).toBeDefined()
 		expect(JSON.parse(files['package.json']!).workspaces).toBeUndefined()
 		expect(files['README.md']).toContain('pnpm install')
+	})
+
+	it('pins the pnpm version so CI and corepack agree', () => {
+		expect(JSON.parse(files['package.json']!).packageManager).toMatch(/^pnpm@\d/)
 	})
 })
 
@@ -251,6 +255,62 @@ describe('hostWiringFiles', () => {
 	it('writes nothing when a host has no remotes', () => {
 		const m = makeManifest({ shell: host() })
 		expect(hostWiringFiles(m.apps.shell!)).toEqual({})
+	})
+})
+
+/*
+ *   CI WORKFLOWS
+ ***************************************************************************************************/
+describe('ciWorkflows', () => {
+	const m = makeManifest({
+		shell: host({ remotes: ['dashboard'], deploy: 'deploy-shell-cmd' }),
+		dashboard: remote({ deploy: 'wrangler pages deploy dist --project-name=dash' }),
+		orphan: remote({ path: 'apps/orphan', port: 5175 }),
+	})
+	const files = ciWorkflows(m)
+
+	it('generates one workflow per app that has a deploy command', () => {
+		expect(Object.keys(files).sort()).toEqual([
+			'.github/workflows/deploy-dashboard.yml',
+			'.github/workflows/deploy-shell.yml',
+		])
+	})
+
+	it('path-filters to the app folder plus the workspace-level files', () => {
+		const yml = files['.github/workflows/deploy-dashboard.yml']!
+		expect(yml).toContain("'apps/dashboard/**'")
+		expect(yml).toContain("'spool.json'")
+		expect(yml).toContain("'spool.vite.ts'")
+		expect(yml).toContain("'pnpm-lock.yaml'")
+		expect(yml).not.toContain("'apps/shell/**'")
+	})
+
+	it('bakes the deploy command in and builds in the app folder', () => {
+		const yml = files['.github/workflows/deploy-dashboard.yml']!
+		expect(yml).toContain('wrangler pages deploy dist --project-name=dash')
+		expect(yml).toContain('working-directory: apps/dashboard')
+		expect(yml).toContain('pnpm run build')
+	})
+
+	it('supports manual runs', () => {
+		expect(files['.github/workflows/deploy-shell.yml']).toContain('workflow_dispatch')
+	})
+
+	it('adapts the setup to the package manager', () => {
+		const npm = ciWorkflows(
+			parseManifest({
+				name: 'acme',
+				packageManager: 'npm',
+				apps: { dash: { ...remote(), deploy: 'x' } },
+			})
+		)['.github/workflows/deploy-dash.yml']!
+		expect(npm).toContain('npm ci')
+		expect(npm).toContain("'package-lock.json'")
+		expect(npm).not.toContain('pnpm/action-setup')
+
+		const pnpm = files['.github/workflows/deploy-dashboard.yml']!
+		expect(pnpm).toContain('pnpm/action-setup')
+		expect(pnpm).toContain('pnpm install --frozen-lockfile')
 	})
 })
 

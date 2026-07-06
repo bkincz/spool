@@ -7,8 +7,9 @@ import { join } from 'node:path'
 import { create } from '../commands/create.js'
 import { dev } from '../commands/dev.js'
 import { build } from '../commands/build.js'
+import { deploy } from '../commands/deploy.js'
 import { doctor } from '../commands/doctor.js'
-import { devAll, buildAll } from '../core/orchestrator.js'
+import { devAll, buildAll, deployAll } from '../core/orchestrator.js'
 import { log } from '../util/logger.js'
 import { freshDir, removeDir } from './helpers.js'
 
@@ -18,6 +19,7 @@ import { freshDir, removeDir } from './helpers.js'
 vi.mock('../core/orchestrator.js', () => ({
 	devAll: vi.fn().mockResolvedValue(undefined),
 	buildAll: vi.fn().mockResolvedValue(undefined),
+	deployAll: vi.fn().mockResolvedValue(undefined),
 }))
 
 /*
@@ -75,6 +77,21 @@ describe('build', () => {
 	it('passes the only filter through', async () => {
 		await build({ only: 'dashboard' })
 		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'])
+	})
+})
+
+/*
+ *   DEPLOY
+ ***************************************************************************************************/
+describe('deploy', () => {
+	it('deploys every app by default', async () => {
+		await deploy({})
+		expect(deployAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+	})
+
+	it('passes the only filter through', async () => {
+		await deploy({ only: 'dashboard' })
+		expect(deployAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'])
 	})
 })
 

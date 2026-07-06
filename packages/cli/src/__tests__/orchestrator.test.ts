@@ -3,8 +3,8 @@
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
-import { devAll, buildAll } from '../core/orchestrator.js'
-import { run, spawnProcess, killTree } from '../util/exec.js'
+import { devAll, buildAll, deployAll } from '../core/orchestrator.js'
+import { run, runShell, spawnProcess, killTree } from '../util/exec.js'
 import { waitForManifest } from '../util/net.js'
 import { log } from '../util/logger.js'
 import { makeWorkspace, host, remote } from './helpers.js'
@@ -14,6 +14,7 @@ import { makeWorkspace, host, remote } from './helpers.js'
  ***************************************************************************************************/
 vi.mock('../util/exec.js', () => ({
 	run: vi.fn(),
+	runShell: vi.fn(),
 	spawnProcess: vi.fn(),
 	killTree: vi.fn(),
 }))
@@ -191,5 +192,70 @@ describe('buildAll', () => {
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 		await expect(buildAll(ws, ['ghost'])).rejects.toThrow('Unknown app(s) in --only: ghost')
 		expect(run).not.toHaveBeenCalled()
+	})
+})
+
+/*
+ *   DEPLOY
+ ***************************************************************************************************/
+describe('deployAll', () => {
+	it('runs each deploy command in its app folder, remotes before hosts', async () => {
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'], deploy: 'deploy-shell' }),
+			dashboard: remote({
+				deploy: 'deploy-dashboard',
+				url: 'https://d.example.com/mf-manifest.json',
+			}),
+		})
+
+		await deployAll(ws)
+
+		const calls = vi.mocked(runShell).mock.calls
+		expect(calls[0]![0]).toBe('deploy-dashboard')
+		expect((calls[0]![1] as { cwd: string }).cwd).toContain('dashboard')
+		expect(calls[1]![0]).toBe('deploy-shell')
+		expect(log.success).toHaveBeenCalledWith('deployed 2 app(s)')
+	})
+
+	it('skips apps without a deploy command and says so', async () => {
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'], deploy: 'deploy-shell' }),
+			dashboard: remote({ url: 'https://d.example.com/mf-manifest.json' }),
+		})
+
+		await deployAll(ws)
+
+		expect(runShell).toHaveBeenCalledTimes(1)
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('no "deploy" command'))
+	})
+
+	it('rejects when no app has a deploy command', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		await expect(deployAll(ws)).rejects.toThrow('Nothing to deploy')
+		expect(runShell).not.toHaveBeenCalled()
+	})
+
+	it('names the app whose deploy failed', async () => {
+		vi.mocked(runShell).mockRejectedValue(new Error('boom'))
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'bad-command' }) })
+		await expect(deployAll(ws)).rejects.toThrow('Deploy failed for "dashboard"')
+	})
+
+	it('reminds you to set url after deploying a remote without one', async () => {
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'deploy-dashboard' }) })
+		await deployAll(ws)
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('has no "url"'))
+	})
+
+	it('warns when the app has no dist folder yet', async () => {
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', {
+			dashboard: remote({ deploy: 'x', url: 'https://d.example.com/mf-manifest.json' }),
+		})
+		await deployAll(ws)
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('no dist folder'))
 	})
 })

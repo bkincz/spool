@@ -104,7 +104,14 @@ function checkSharedDeps(ws: Workspace): Diagnostic[] {
 /** dep -> version range -> apps using that range. */
 type SharedRanges = Map<string, Map<string, string[]>>
 
+/** "@scope/pkg/subpath" and "pkg/subpath" resolve to the installable package. */
+function packageName(specifier: string): string {
+	const parts = specifier.split('/')
+	return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!
+}
+
 function collectSharedRanges(ws: Workspace, issues: Diagnostic[]): SharedRanges {
+	const sharedPackages = [...new Set(ws.manifest.shared.map(packageName))]
 	const ranges: SharedRanges = new Map()
 	for (const [name, app] of Object.entries(ws.manifest.apps)) {
 		const pkg = readPackageJson(join(ws.root, app.path, 'package.json'))
@@ -114,7 +121,7 @@ function collectSharedRanges(ws: Workspace, issues: Diagnostic[]): SharedRanges 
 			continue
 		}
 		const deps = { ...pkg.dependencies, ...pkg.devDependencies }
-		for (const dep of ws.manifest.shared) {
+		for (const dep of sharedPackages) {
 			const range = deps[dep]
 			if (!range) {
 				issues.push(

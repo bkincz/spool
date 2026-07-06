@@ -82,7 +82,6 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 /*
  *   STEPS
  ***************************************************************************************************/
-/** Prompt for a text answer, or null when the user cancels. */
 async function askText(options: Parameters<typeof p.text>[0]): Promise<string | null> {
 	const answer = await p.text(options)
 	return p.isCancel(answer) ? null : answer.trim()
