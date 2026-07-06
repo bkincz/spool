@@ -1,0 +1,141 @@
+/*
+ *   IMPORTS
+ ***************************************************************************************************/
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { create } from '../commands/create.js'
+import { upgrade } from '../commands/upgrade.js'
+import { log } from '../util/logger.js'
+import { freshDir, removeDir } from './helpers.js'
+
+/*
+ *   MOCKS
+ ***************************************************************************************************/
+vi.mock('../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
+
+/*
+ *   TEST SETUP
+ ***************************************************************************************************/
+let dir: string
+let cwd: string
+
+const read = (rel: string) => readFileSync(join(dir, rel), 'utf8')
+const readJson = (rel: string) => JSON.parse(read(rel))
+
+/** Rewind the scaffold to look like an old spool version produced it. */
+function ageWorkspace() {
+	writeFileSync(join(dir, 'spool.vite.ts'), '// stale helper from an old spool\n')
+	writeFileSync(join(dir, 'apps/shell/vite.config.ts'), '// stale baked config\n')
+	rmSync(join(dir, 'apps/dashboard/public/_headers'))
+	rmSync(join(dir, 'tsconfig.json'))
+	rmSync(join(dir, '.prettierignore'))
+
+	const rootPkg = readJson('package.json')
+	rootPkg.engines = { node: '^20.19.0 || >=22.12.0' }
+	delete rootPkg.packageManager
+	delete rootPkg.devDependencies
+	writeFileSync(join(dir, 'package.json'), JSON.stringify(rootPkg))
+
+	const appPkg = readJson('apps/dashboard/package.json')
+	appPkg.dependencies.react = '^18.3.1'
+	appPkg.dependencies['react-dom'] = '^18.3.1'
+	delete appPkg.devDependencies['@types/node']
+	delete appPkg.engines
+	writeFileSync(join(dir, 'apps/dashboard/package.json'), JSON.stringify(appPkg))
+}
+
+beforeEach(async () => {
+	dir = freshDir('spool-upgrade-')
+	cwd = process.cwd()
+	vi.spyOn(console, 'log').mockImplementation(() => {})
+	await create(dir, {
+		name: 'acme',
+		pm: 'pnpm',
+		host: 'shell',
+		remotes: 'dashboard',
+		install: false,
+	})
+	process.chdir(dir)
+})
+
+afterEach(() => {
+	process.chdir(cwd)
+	removeDir(dir)
+	vi.restoreAllMocks()
+})
+
+/*
+ *   UPGRADE
+ ***************************************************************************************************/
+describe('upgrade', () => {
+	it('regenerates the helper and vite configs', async () => {
+		ageWorkspace()
+		await upgrade({})
+
+		expect(read('spool.vite.ts')).toContain('export function spoolApp')
+		expect(read('apps/shell/vite.config.ts')).toContain("spoolApp('shell'")
+	})
+
+	it('adds missing files without touching existing ones', async () => {
+		ageWorkspace()
+		writeFileSync(join(dir, 'apps/shell/src/App.tsx'), '// my custom layout\n')
+		await upgrade({})
+
+		expect(existsSync(join(dir, 'apps/dashboard/public/_headers'))).toBe(true)
+		expect(existsSync(join(dir, 'tsconfig.json'))).toBe(true)
+		expect(existsSync(join(dir, '.prettierignore'))).toBe(true)
+		expect(read('apps/shell/src/App.tsx')).toBe('// my custom layout\n')
+	})
+
+	it('syncs toolchain deps and adds missing ones in the right section', async () => {
+		ageWorkspace()
+		await upgrade({})
+
+		const pkg = readJson('apps/dashboard/package.json')
+		expect(pkg.dependencies.react).toBe('^19.2.0')
+		expect(pkg.dependencies['react-dom']).toBe('^19.2.0')
+		expect(pkg.devDependencies['@types/node']).toBe('^26.0.0')
+		expect(pkg.engines.node).toBe('>=22.12.0')
+	})
+
+	it('updates the workspace root package.json', async () => {
+		ageWorkspace()
+		await upgrade({})
+
+		const pkg = readJson('package.json')
+		expect(pkg.engines.node).toBe('>=22.12.0')
+		expect(pkg.packageManager).toMatch(/^pnpm@/)
+		expect(pkg.devDependencies.typescript).toBeDefined()
+		expect(pkg.devDependencies['@types/node']).toBeDefined()
+	})
+
+	it('regenerates host typings', async () => {
+		writeFileSync(join(dir, 'apps/shell/src/remotes.d.ts'), '// stale typings\n')
+		await upgrade({})
+
+		expect(read('apps/shell/src/remotes.d.ts')).toContain('dashboard/App')
+	})
+
+	it('writes nothing with --dry-run', async () => {
+		ageWorkspace()
+		await upgrade({ dryRun: true })
+
+		expect(read('spool.vite.ts')).toBe('// stale helper from an old spool\n')
+		expect(existsSync(join(dir, 'tsconfig.json'))).toBe(false)
+		expect(readJson('apps/dashboard/package.json').dependencies.react).toBe('^18.3.1')
+	})
+
+	it('is idempotent: a fresh scaffold reports nothing to do', async () => {
+		const success = vi.spyOn(log, 'success').mockImplementation(() => {})
+		await upgrade({})
+		expect(success).toHaveBeenCalledWith('already up to date')
+	})
+
+	it('skips apps whose folders are missing', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		rmSync(join(dir, 'apps/dashboard'), { recursive: true })
+		await upgrade({})
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))
+	})
+})

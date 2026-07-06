@@ -157,6 +157,17 @@ Notes:
 - Add the secrets your deploy commands need (like `CLOUDFLARE_API_TOKEN`) to the repository; each workflow has a commented `env` block showing where they go.
 - Workflows trigger on pushes to `main` and support manual runs from the Actions tab. Edit the branch list in the file if you release from elsewhere.
 
+### `spool upgrade`
+
+Brings a workspace up to the installed spool version: regenerates `spool.vite.ts` and every app's `vite.config.ts`, refreshes host typings, adds files newer spool versions ship (`public/_headers`, the root `tsconfig.json`, `.prettierignore`), and syncs toolchain dependencies, `engines`, and the pnpm pin.
+
+```bash
+spool upgrade --dry-run   # report what would change
+spool upgrade             # apply, then review with git and reinstall
+```
+
+It only touches files spool generates; your components, styles, and `spool.json` stay yours. Only real differences are written, so rerunning it reports "already up to date".
+
 ### `spool doctor`
 
 Checks the workspace and reports anything off: port collisions, missing app folders, remotes that point nowhere, remotes no host imports, shared deps that are missing or on mismatched versions, and a missing `spool.vite.ts`. Exits non-zero on a real error, so you can run it in CI.

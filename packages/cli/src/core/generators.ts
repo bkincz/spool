@@ -98,7 +98,7 @@ function gitignore(m: Manifest): string {
 }
 
 /** Within vite's supported range; Node 20 is EOL and pnpm 11 needs 22.13+. */
-const NODE_RANGE = '>=22.12.0'
+export const NODE_RANGE = '>=22.12.0'
 
 function workspacePackageJson(m: Manifest): string {
 	const pkg: Record<string, unknown> = {
@@ -128,7 +128,7 @@ function workspacePackageJson(m: Manifest): string {
 }
 
 function workspaceReadme(m: Manifest): string {
-	return `# ${m.name}\n\nMicro-frontend workspace scaffolded with [spool](https://github.com/bkincz/spool).\n\nAll federation wiring lives in \`spool.json\`; each app's \`vite.config.ts\` reads it\nthrough \`spool.vite.ts\` at startup, so editing the manifest is all you ever do.\n\n## Commands\n\n\`\`\`bash\n${m.packageManager} install   # install all apps\nspool dev        # run host + remotes together\nspool build      # coordinated production build\nspool add <name> # add a host or remote app\nspool doctor     # check ports, wiring and shared deps\n\`\`\`\n\n## Deploying remotes\n\nA host resolves each remote in this order:\n\n1. \`SPOOL_REMOTE_<NAME>\` env var (ad-hoc override, e.g. point one remote at staging)\n2. the remote's \`url\` in \`spool.json\` (its deployed \`mf-manifest.json\`, used in production builds)\n3. \`http://localhost:<port>/mf-manifest.json\` (local dev)\n`
+	return `# ${m.name}\n\nMicro-frontend workspace scaffolded with [spool](https://github.com/bkincz/spool).\n\nAll federation wiring lives in \`spool.json\`; each app's \`vite.config.ts\` reads it\nthrough \`spool.vite.ts\` at startup, so editing the manifest is all you ever do.\n\n## Commands\n\n\`\`\`bash\n${m.packageManager} install    # install all apps\nspool dev           # run host + remotes together\nspool build         # coordinated production build\nspool deploy        # run each app's deploy command\nspool add <name>    # add a host or remote app\nspool remove <name> # remove an app and unwire it\nspool ci            # generate per-app deploy workflows\nspool upgrade       # sync generated files to the installed spool\nspool doctor        # check ports, wiring and shared deps\n\`\`\`\n\n## Deploying remotes\n\nA host resolves each remote in this order:\n\n1. \`SPOOL_REMOTE_<NAME>\` env var (ad-hoc override, e.g. point one remote at staging)\n2. the remote's \`url\` in \`spool.json\` (its deployed \`mf-manifest.json\`, used in production builds)\n3. \`http://localhost:<port>/mf-manifest.json\` (local dev)\n`
 }
 
 /*

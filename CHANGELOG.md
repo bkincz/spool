@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.3.0 - 2026-07-06
+## 1.4.0
+
+Added `spool upgrade`: brings a workspace up to the installed spool version.
+Regenerates the runtime helper and vite configs, refreshes host typings, adds
+files newer versions ship, and syncs toolchain dependencies, engines, and the
+pnpm pin. Only spool-generated files are touched and only real differences
+are written, so it is safe to rerun. `--dry-run` reports without writing.
+
+Scaffolded workspace READMEs now list every command, including deploy,
+remove, ci, and upgrade.
+
+## 1.3.0
 
 Added `spool deploy`. Each app gets an optional `deploy` command in
 `spool.json`, a shell command spool runs in the app's folder, remotes before
@@ -33,7 +44,7 @@ Fixed: `spool doctor` no longer flags subpath share entries (like
 `@bkincz/clutch/react`) as missing dependencies; it now checks the package
 they belong to.
 
-## 1.2.0 - 2026-07-06
+## 1.2.0
 
 Added `spool remove <name>`: drops an app from `spool.json`, unwires it from
 every host, and regenerates the hosts' ambient typings. The app folder stays
@@ -41,7 +52,7 @@ on disk unless you pass `--files`; deleting is refused if a hand-edited path
 would land outside the workspace. Removing came up the first time the demo
 workspace was restructured, so now it is a command instead of hand-editing.
 
-## 1.1.0 - 2026-07-06
+## 1.1.0
 
 Lessons from deploying the [live demo](https://spool-demo-shell.pages.dev) to
 Cloudflare Pages, baked into the scaffold:
@@ -61,7 +72,7 @@ Existing workspaces: regenerate `spool.vite.ts` and each app's
 the same edits by hand (the config now passes vite's `command` into
 `spoolApp`).
 
-## 1.0.1 - 2026-07-06
+## 1.0.1
 
 Fixed: production builds of remotes did not emit `mf-manifest.json`, so a
 deployed host could not resolve any remote. The dev server serves the manifest
@@ -70,7 +81,7 @@ Scaffolded workspaces now pass `manifest: true` to the federation plugin in
 `spool.vite.ts`. Existing workspaces can apply the same one-line fix to their
 `spool.vite.ts`; new scaffolds include it.
 
-## 1.0.0 - 2026-07-06
+## 1.0.0
 
 First public release.
 

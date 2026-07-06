@@ -10,6 +10,7 @@ import { dev } from './commands/dev.js'
 import { build } from './commands/build.js'
 import { deploy } from './commands/deploy.js'
 import { ci } from './commands/ci.js'
+import { upgrade } from './commands/upgrade.js'
 import { doctor } from './commands/doctor.js'
 import { CliError } from './util/errors.js'
 import { log } from './util/logger.js'
@@ -78,6 +79,12 @@ program
 	.description('Generate per-app GitHub deploy workflows with path filters')
 	.option('--force', 'overwrite existing workflow files')
 	.action(ci)
+
+program
+	.command('upgrade')
+	.description('Regenerate spool-owned files and sync the toolchain to this CLI version')
+	.option('--dry-run', 'report what would change without writing')
+	.action(upgrade)
 
 program
 	.command('doctor')
