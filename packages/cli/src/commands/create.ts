@@ -6,14 +6,17 @@ import { existsSync } from 'node:fs'
 import * as p from '@clack/prompts'
 import pc from 'picocolors'
 import {
+	Framework,
 	MANIFEST_FILE,
 	emptyManifest,
 	appPort,
 	validateName,
 	type AppConfig,
+	type Framework as FrameworkType,
 	type Manifest,
 } from '../core/config.js'
-import { workspaceFiles, appFiles } from '../core/generators.js'
+import { workspaceFiles, appFiles, defaultExposes } from '../core/generators.js'
+import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { run } from '../util/exec.js'
@@ -27,6 +30,7 @@ export interface CreateOptions {
 	host?: string
 	remotes?: string
 	pm?: string
+	framework?: string
 	install?: boolean
 	here?: boolean
 }
@@ -36,6 +40,7 @@ interface CreateInputs {
 	hostName: string
 	remoteNames: string[]
 	packageManager: Manifest['packageManager']
+	framework: FrameworkType
 }
 
 /*
@@ -153,7 +158,12 @@ async function resolveInputs(
 		packageManager = answer
 	}
 
-	return { name, hostName, remoteNames, packageManager }
+	const parsedFramework = Framework.safeParse(opts.framework ?? 'react')
+	if (!parsedFramework.success) {
+		fail(`Unknown framework "${opts.framework}". Use ${Framework.options.join(' or ')}.`)
+	}
+
+	return { name, hostName, remoteNames, packageManager, framework: parsedFramework.data }
 }
 
 async function scaffold(targetDir: string, manifest: Manifest): Promise<void> {
@@ -186,13 +196,21 @@ async function installDependencies(
 /*
  *   HELPERS
  ***************************************************************************************************/
-function buildManifest({ name, hostName, remoteNames, packageManager }: CreateInputs): Manifest {
+function buildManifest({
+	name,
+	hostName,
+	remoteNames,
+	packageManager,
+	framework,
+}: CreateInputs): Manifest {
 	const manifest = emptyManifest(name)
 	manifest.packageManager = packageManager
+	manifest.shared = [...FRAMEWORK_DEPS[framework].dependencies]
 	let port = 5173
 
 	manifest.apps[hostName] = {
 		type: 'host',
+		framework,
 		path: `apps/${hostName}`,
 		port: port++,
 		remotes: [...remoteNames],
@@ -202,10 +220,11 @@ function buildManifest({ name, hostName, remoteNames, packageManager }: CreateIn
 	for (const remote of remoteNames) {
 		manifest.apps[remote] = {
 			type: 'remote',
+			framework,
 			path: `apps/${remote}`,
 			port: port++,
 			remotes: [],
-			exposes: { './App': './src/App.tsx' },
+			exposes: defaultExposes(framework),
 		} satisfies AppConfig
 	}
 

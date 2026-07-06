@@ -37,6 +37,7 @@ program
 	.option('--host <name>', 'host (shell) app name')
 	.option('--remotes <list>', 'comma-separated remote app names')
 	.option('--pm <manager>', 'package manager: pnpm | npm | yarn')
+	.option('--framework <framework>', 'react | svelte', 'react')
 	.option('--here', 'scaffold into the current directory')
 	.option('--no-install', 'skip dependency install')
 	.action(create)
@@ -47,6 +48,7 @@ program
 	.option('-t, --type <type>', 'host | remote', 'remote')
 	.option('-p, --port <port>', 'dev server port')
 	.option('--host <name>', 'host app to wire this remote into')
+	.option('--framework <framework>', 'react | svelte', 'react')
 	.option('--no-install', 'skip dependency install')
 	.action(add)
 
@@ -89,6 +91,7 @@ program
 program
 	.command('doctor')
 	.description('Check ports, app folders, federation wiring and shared deps')
+	.option('--remote', 'also fetch each deployed remote url')
 	.action(doctor)
 
 /*

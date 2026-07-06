@@ -79,6 +79,49 @@ describe('add', () => {
 		expect(warn).not.toHaveBeenCalled()
 	})
 
+	it('adds a svelte remote with the mount contract wired end to end', async () => {
+		await add('widget', { framework: 'svelte', install: false })
+
+		const manifest = JSON.parse(read('spool.json'))
+		expect(manifest.apps.widget.framework).toBe('svelte')
+		expect(manifest.apps.widget.exposes).toEqual({ './App': './src/mount.ts' })
+		expect(read('apps/widget/src/mount.ts')).toContain('mountApp')
+		expect(read('apps/widget/vite.config.ts')).toContain('@sveltejs/vite-plugin-svelte')
+		expect(read('apps/shell/src/remotes.d.ts')).toContain(
+			'const mount: (target: HTMLElement) => () => void'
+		)
+	})
+
+	it('shares the new framework runtime so its apps stay singletons', async () => {
+		await add('widget', { framework: 'svelte', install: false })
+		const manifest = JSON.parse(read('spool.json'))
+		expect(manifest.shared).toContain('svelte')
+		expect(manifest.shared).toContain('react')
+	})
+
+	it('hints the MountRemote wrapper for a mount-contract remote in a react host', async () => {
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
+		const plain = vi.spyOn(log, 'plain').mockImplementation(() => {})
+		await add('widget', { framework: 'svelte', install: false })
+		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/shell/src/App.tsx'))
+		expect(plain).toHaveBeenCalledWith(expect.stringContaining('function MountRemote'))
+	})
+
+	it('writes the react bridge when a react remote joins a svelte host', async () => {
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
+		await add('panel', { type: 'host', framework: 'svelte', install: false })
+		await add('billing', { host: 'panel', install: false })
+
+		expect(read('apps/panel/src/react-bridge.ts')).toContain('mountReact')
+		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/panel/src/App.svelte'))
+	})
+
+	it('rejects an unknown framework', async () => {
+		await expect(add('widget', { framework: 'angular', install: false })).rejects.toThrow(
+			'Unknown framework'
+		)
+	})
+
 	it('warns that --host is ignored when adding a host', async () => {
 		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		await add('admin', { type: 'host', host: 'shell', install: false })

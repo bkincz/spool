@@ -117,6 +117,11 @@ jobs:
               shell: bash
               run: node packages/cli/dist/index.js create "$RUNNER_TEMP/smoke" --name smoke --host shell --remotes dashboard --pm pnpm --no-install
 
+            - name: Add a svelte remote
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: node "$GITHUB_WORKSPACE/packages/cli/dist/index.js" add widget --framework svelte --no-install
+
             # A fresh scaffold has no lockfile, and pnpm defaults to
             # --frozen-lockfile on CI, which errors when the lockfile is absent.
             - name: Install workspace dependencies

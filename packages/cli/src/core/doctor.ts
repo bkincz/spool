@@ -5,6 +5,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Workspace } from './workspace.js'
 import { HELPER_FILE, type Manifest } from './config.js'
+import { FRAMEWORK_DEPS } from './versions.js'
 
 /*
  *   TYPES
@@ -32,6 +33,7 @@ export function diagnose(ws: Workspace): Diagnostic[] {
 		...checkRemotes(apps),
 		...checkExposure(apps),
 		...checkSharedDeps(ws),
+		...checkFrameworkShared(ws),
 	]
 }
 
@@ -90,8 +92,10 @@ function checkRemotes(apps: Apps): Diagnostic[] {
 }
 
 /**
- * Shared deps are federation singletons: every app must have them, at the
- * same version range. Apps without a package.json are skipped; checkPaths
+ * Shared deps are federation singletons: apps that have them must agree on
+ * the version range, and an app missing one silently bundles a private copy.
+ * Another framework's runtime is the one legitimate absence, so a svelte app
+ * without react is fine. Apps without a package.json are skipped; checkPaths
  * already reports missing folders.
  */
 function checkSharedDeps(ws: Workspace): Diagnostic[] {
@@ -121,12 +125,22 @@ function collectSharedRanges(ws: Workspace, issues: Diagnostic[]): SharedRanges 
 			continue
 		}
 		const deps = { ...pkg.dependencies, ...pkg.devDependencies }
+		// Another framework's runtime is expected to be absent; anything else
+		// missing means the runtime helper silently drops the singleton for
+		// this app and it bundles a private copy.
+		const foreignRuntimes = new Set<string>(
+			Object.entries(FRAMEWORK_DEPS)
+				.filter(([framework]) => framework !== app.framework)
+				.flatMap(([, frameworkDeps]) => frameworkDeps.dependencies)
+		)
 		for (const dep of sharedPackages) {
 			const range = deps[dep]
 			if (!range) {
-				issues.push(
-					warn(name, `Shared dep "${dep}" is not in its package.json dependencies.`)
-				)
+				if (!foreignRuntimes.has(dep)) {
+					issues.push(
+						warn(name, `Shared dep "${dep}" is not in its package.json dependencies.`)
+					)
+				}
 				continue
 			}
 			const byRange = ranges.get(dep) ?? new Map<string, string[]>()
@@ -135,6 +149,28 @@ function collectSharedRanges(ws: Workspace, issues: Diagnostic[]): SharedRanges 
 		}
 	}
 	return ranges
+}
+
+/**
+ * Every framework in use needs its runtime in `shared`, or each of its apps
+ * bundles a private copy and the singleton promise quietly breaks.
+ */
+function checkFrameworkShared(ws: Workspace): Diagnostic[] {
+	const sharedPackages = new Set(ws.manifest.shared.map(packageName))
+	const frameworks = new Set(Object.values(ws.manifest.apps).map(app => app.framework))
+	const issues: Diagnostic[] = []
+	for (const framework of frameworks) {
+		for (const dep of FRAMEWORK_DEPS[framework].dependencies) {
+			if (sharedPackages.has(dep)) continue
+			issues.push(
+				warn(
+					'',
+					`"${dep}" is not in "shared", so every ${framework} app bundles its own copy. Add it to "shared" in spool.json.`
+				)
+			)
+		}
+	}
+	return issues
 }
 
 function findRangeMismatches(ranges: SharedRanges): Diagnostic[] {
@@ -164,6 +200,77 @@ function readPackageJson(path: string): PackageJsonDeps | 'missing' | 'invalid' 
 	} catch {
 		return 'invalid'
 	}
+}
+
+/*
+ *   REMOTE CHECKS
+ ***************************************************************************************************/
+/**
+ * Fetches each deployed remote's manifest url. Catches the two production
+ * failures a static host hides: the SPA fallback answering 200 with HTML when
+ * mf-manifest.json is missing, and absent CORS headers that make browsers
+ * block cross-origin hosts.
+ */
+export async function diagnoseRemotes(ws: Workspace): Promise<Diagnostic[]> {
+	const remotes = Object.entries(ws.manifest.apps).filter(([, app]) => app.type === 'remote')
+	const results = await Promise.all(
+		remotes.map(([name, app]) =>
+			app.url ? checkDeployedRemote(name, app.url) : Promise.resolve([noUrl(name)])
+		)
+	)
+	return results.flat()
+}
+
+const noUrl = (name: string): Diagnostic =>
+	warn(name, 'It has no "url" in spool.json, so there is no deployed manifest to check.')
+
+async function checkDeployedRemote(name: string, url: string): Promise<Diagnostic[]> {
+	let response: Response
+	try {
+		response = await fetch(url, {
+			headers: { Origin: 'https://spool-doctor.invalid' },
+			signal: AbortSignal.timeout(8000),
+		})
+	} catch (cause) {
+		const reason = cause instanceof Error ? cause.message : String(cause)
+		return [error(name, `Could not fetch ${url} (${reason}).`)]
+	}
+
+	if (!response.ok) {
+		return [
+			error(name, `${url} responded ${response.status}. Deploy the remote, or fix the url.`),
+		]
+	}
+
+	const issues: Diagnostic[] = []
+	let body: string
+	try {
+		body = await response.text()
+	} catch (cause) {
+		const reason = cause instanceof Error ? cause.message : String(cause)
+		return [error(name, `Could not read the response from ${url} (${reason}).`)]
+	}
+	try {
+		JSON.parse(body)
+	} catch {
+		issues.push(
+			error(
+				name,
+				`${url} did not return JSON; this is usually the host's SPA fallback page, meaning mf-manifest.json is not deployed at that path.`
+			)
+		)
+	}
+
+	if (!response.headers.get('access-control-allow-origin')) {
+		issues.push(
+			warn(
+				name,
+				`${url} sends no Access-Control-Allow-Origin header, so browsers will block hosts on other origins. Deploy the remote's public/_headers file, or configure the header on your host.`
+			)
+		)
+	}
+
+	return issues
 }
 
 function checkExposure(apps: Apps): Diagnostic[] {

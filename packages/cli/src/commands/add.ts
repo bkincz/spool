@@ -3,13 +3,20 @@
  ***************************************************************************************************/
 import { join } from 'node:path'
 import { requireWorkspace, saveManifest } from '../core/workspace.js'
-import { HELPER_FILE, validateName, type AppConfig, type Manifest } from '../core/config.js'
-import { appFiles, helperFile, hostWiringFiles } from '../core/generators.js'
+import {
+	Framework,
+	HELPER_FILE,
+	validateName,
+	type AppConfig,
+	type Manifest,
+} from '../core/config.js'
+import { appFiles, defaultExposes, helperFile, hostWiringFiles } from '../core/generators.js'
+import { TEMPLATES, remoteRefs } from '../core/templates/index.js'
+import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { run } from '../util/exec.js'
 import { log, fail } from '../util/logger.js'
-import { pascalCase } from '../util/names.js'
 
 /*
  *   TYPES
@@ -18,6 +25,7 @@ export interface AddOptions {
 	type?: string
 	port?: string
 	host?: string
+	framework?: string
 	install?: boolean
 }
 
@@ -36,19 +44,26 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 	if (opts.type && opts.type !== 'host' && opts.type !== 'remote') {
 		fail(`Unknown app type "${opts.type}". Use "host" or "remote".`)
 	}
+	const parsedFramework = Framework.safeParse(opts.framework ?? 'react')
+	if (!parsedFramework.success) {
+		fail(`Unknown framework "${opts.framework}". Use ${Framework.options.join(' or ')}.`)
+	}
 
 	const type: AppConfig['type'] = opts.type === 'host' ? 'host' : 'remote'
 	if (type === 'host' && opts.host) {
 		log.warn(`--host only applies when adding a remote; ignoring --host ${opts.host}.`)
 	}
+	const framework = parsedFramework.data
 	const app: AppConfig = {
 		type,
+		framework,
 		path: `apps/${name}`,
 		port: resolvePort(manifest, opts.port),
 		remotes: [],
-		exposes: type === 'remote' ? { './App': './src/App.tsx' } : {},
+		exposes: type === 'remote' ? defaultExposes(framework) : {},
 	}
 	manifest.apps[name] = app
+	shareFrameworkRuntime(manifest, framework)
 
 	const host = type === 'remote' ? wireIntoHost(manifest, name, opts.host) : undefined
 
@@ -63,14 +78,19 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 
 	await writeFiles(join(ws.root, app.path), await formatFiles(appFiles(manifest, name, app)))
 	if (host) {
-		const typings = await formatFiles(hostWiringFiles(host.app))
+		const typings = await formatFiles(hostWiringFiles(manifest, host.app))
 		await writeFiles(join(ws.root, host.app.path), typings, { force: true })
+		// A bridge the host now needs is created, but never overwritten in
+		// case the user has edited it.
+		const bridge = TEMPLATES[host.app.framework].bridgeFiles(remoteRefs(manifest, host.app))
+		await writeFiles(join(ws.root, host.app.path), await formatFiles(bridge))
 	}
 	await saveManifest(ws)
 	log.success(`added ${type} ${name} on port ${app.port}`)
 
-	// App.tsx is never touched, so print how to mount the new remote instead.
-	if (host) printMountHint(name, host.name)
+	// The host's own components are never touched, so print how to mount the
+	// new remote instead.
+	if (host) printMountHint({ name, framework }, host)
 
 	const pm = ws.manifest.packageManager
 	if (opts.install === false) {
@@ -126,11 +146,20 @@ function nextFreePort(manifest: Manifest): number {
 	return port
 }
 
-function printMountHint(remote: string, hostName: string): void {
-	const comp = pascalCase(remote)
-	log.step(`To mount it, edit apps/${hostName}/src/App.tsx:`)
-	log.plain(`    const ${comp} = lazy(() => import("${remote}/App"))`)
-	log.plain(`    // then render <${comp} /> inside a <Suspense> boundary`)
+/** Federation shares a framework runtime only when it is in `shared`. */
+function shareFrameworkRuntime(manifest: Manifest, framework: Framework): void {
+	const missing = FRAMEWORK_DEPS[framework].dependencies.filter(
+		dep => !manifest.shared.includes(dep)
+	)
+	if (!missing.length) return
+	manifest.shared.push(...missing)
+	log.step(`shared ${missing.join(', ')} so every ${framework} app gets one copy`)
+}
+
+function printMountHint(ref: { name: string; framework: Framework }, host: HostRef): void {
+	const hint = TEMPLATES[host.app.framework].mountHint(ref, host.name)
+	log.step(hint.intro)
+	for (const line of hint.lines) log.plain(`    ${line}`)
 }
 
 function defaultHost(manifest: Manifest): string | undefined {

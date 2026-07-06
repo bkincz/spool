@@ -49,6 +49,7 @@ describe('parseManifest', () => {
 		})
 		expect(manifest.apps.shell).toEqual({
 			type: 'host',
+			framework: 'react',
 			path: 'apps/shell',
 			port: 5173,
 			remotes: [],

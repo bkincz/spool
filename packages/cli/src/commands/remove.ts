@@ -44,7 +44,9 @@ export async function remove(name: string, opts: RemoveOptions): Promise<void> {
 
 	log.success(`removed ${app.type} ${name}`)
 	if (hosts.length) {
-		log.step(`If a host's App.tsx still imports "${name}/App", remove that import.`)
+		log.step(
+			`If a host's App component still imports or mounts "${name}/App", remove that code.`
+		)
 	}
 }
 
@@ -71,9 +73,11 @@ function unwireFromHosts(ws: Workspace, remote: string): HostRef[] {
 async function refreshHostTypings(ws: Workspace, host: HostRef): Promise<void> {
 	const app = ws.manifest.apps[host.name]!
 	if (host.remotes.length) {
-		await writeFiles(join(ws.root, host.path), await formatFiles(hostWiringFiles(app)), {
-			force: true,
-		})
+		await writeFiles(
+			join(ws.root, host.path),
+			await formatFiles(hostWiringFiles(ws.manifest, app)),
+			{ force: true }
+		)
 	} else {
 		// hostWiringFiles writes nothing for a host without remotes, so the
 		// stale declarations have to go explicitly.

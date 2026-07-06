@@ -38,12 +38,17 @@ export function validateName(value: string, label = 'name'): string | undefined 
 export const AppType = z.enum(['host', 'remote'])
 export type AppType = z.infer<typeof AppType>
 
+export const Framework = z.enum(['react', 'svelte'])
+export type Framework = z.infer<typeof Framework>
+
 // Strict schemas: spool.json is hand-edited, so typos must fail loudly
 // instead of being silently dropped.
 export const AppSchema = z
 	.object({
 		/** "host" mounts remotes; "remote" exposes modules. */
 		type: AppType,
+		/** UI framework the app is scaffolded and regenerated for. */
+		framework: Framework.default('react'),
 		/** Path to the app, relative to workspace root. */
 		path: z.string(),
 		/** Dev server port. */

@@ -22,12 +22,21 @@ export function removeDir(dir: string): void {
  *   MANIFEST FACTORIES
  ***************************************************************************************************/
 export function host(overrides: Partial<AppConfig> = {}): AppConfig {
-	return { type: 'host', path: 'apps/shell', port: 5173, remotes: [], exposes: {}, ...overrides }
+	return {
+		type: 'host',
+		framework: 'react',
+		path: 'apps/shell',
+		port: 5173,
+		remotes: [],
+		exposes: {},
+		...overrides,
+	}
 }
 
 export function remote(overrides: Partial<AppConfig> = {}): AppConfig {
 	return {
 		type: 'remote',
+		framework: 'react',
 		path: 'apps/dashboard',
 		port: 5174,
 		remotes: [],

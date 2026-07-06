@@ -1,10 +1,10 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { HELPER_FILE, type AppConfig, type Manifest } from './config.js'
+import { HELPER_FILE, type AppConfig, type Framework, type Manifest } from './config.js'
 import { PRETTIER_OPTIONS } from './format.js'
-import { PNPM_VERSION, TOOLCHAIN } from './versions.js'
-import { pascalCase } from '../util/names.js'
+import { appDependencies, PNPM_VERSION, TOOLCHAIN } from './versions.js'
+import { TEMPLATES, remoteRefs, type RemoteRef } from './templates/index.js'
 
 /*
  *   TYPES
@@ -16,15 +16,6 @@ export type FileMap = Record<string, string>
  *   HELPERS
  ***************************************************************************************************/
 const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
-
-/** Ambient module declarations so hosts can `import` their remotes' exposes. */
-const remoteTypings = (remotes: string[]): string =>
-	remotes
-		.map(
-			r =>
-				`declare module "${r}/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`
-		)
-		.join('')
 
 /** Relative import path from an app folder up to the workspace-root helper. */
 const helperImport = (appPath: string): string => {
@@ -56,7 +47,6 @@ export function workspaceFiles(m: Manifest): FileMap {
 				lib: ['ES2022', 'DOM', 'DOM.Iterable'],
 				module: 'ESNext',
 				moduleResolution: 'Bundler',
-				jsx: 'react-jsx',
 				strict: true,
 				skipLibCheck: true,
 				esModuleInterop: true,
@@ -201,6 +191,38 @@ function remoteUrl(name: string, app: SpoolAppEntry, command: SpoolCommand): str
 
 export type SpoolCommand = "build" | "serve";
 
+/**
+ * Shared deps the app does not declare in its own package.json are dropped,
+ * so apps on different frameworks never share deps they don't install.
+ */
+function declaredShared(dir: string, deps: string[]): string[] {
+  if (!deps.length) return deps;
+  let declared: Set<string>;
+  try {
+    const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    declared = new Set([
+      ...Object.keys(pkg.dependencies ?? {}),
+      ...Object.keys(pkg.devDependencies ?? {}),
+    ]);
+  } catch {
+    // Sharing nothing is safe (the app just bundles its own copies); sharing
+    // deps the app may not have installed is not.
+    console.warn(
+      "[spool] could not read " + join(dir, "package.json") + "; sharing no deps for this app. Run spool doctor."
+    );
+    return [];
+  }
+  // "@scope/pkg/subpath" is declared through its package, "@scope/pkg".
+  const packageName = (dep: string): string => {
+    const parts = dep.split("/");
+    return dep.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+  };
+  return deps.filter(dep => declared.has(packageName(dep)));
+}
+
 export function spoolApp(
   name: string,
   from: string = process.cwd(),
@@ -210,7 +232,7 @@ export function spoolApp(
   const app = manifest.apps[name];
   if (!app) throw new Error('spool.vite: no app named "' + name + '" in spool.json');
 
-  const shared = manifest.shared ?? [];
+  const shared = declaredShared(from, manifest.shared ?? []);
   const server = { port: app.port, strictPort: true };
 
   if (app.type === "host") {
@@ -319,26 +341,40 @@ ${pnpmSetup}
 /*
  *   APP FILES
  ***************************************************************************************************/
+/** The expose map a fresh remote starts with; the entry differs by contract. */
+export function defaultExposes(framework: Framework): Record<string, string> {
+	return { './App': TEMPLATES[framework].exposeEntry }
+}
+
 export function appFiles(m: Manifest, appName: string, app: AppConfig): FileMap {
 	const isHost = app.type === 'host'
+	const refs = isHost ? remoteRefs(m, app) : []
 	const files: FileMap = {
-		'package.json': appPackageJson(appName),
-		'tsconfig.json': appTsConfig(),
-		'vite.config.ts': viteConfig(appName, app),
-		'index.html': indexHtml(appName),
-		'src/main.tsx': mainTsx(),
-		'src/App.tsx': isHost ? hostApp(appName, app.remotes) : remoteApp(appName),
-		'src/vite-env.d.ts': `/// <reference types="vite/client" />\n`,
+		'package.json': appPackageJson(m, appName, app),
+		'tsconfig.json': appTsConfig(app.framework),
+		'index.html': indexHtml(appName, app.framework),
+		'src/vite-env.d.ts': TEMPLATES[app.framework].viteEnv,
+		...TEMPLATES[app.framework].sourceFiles(appName, isHost, refs),
+		...appConfigFiles(appName, app),
 	}
 
+	if (refs.length) {
+		files['src/remotes.d.ts'] = remoteTypings(refs)
+	}
+	return files
+}
+
+/**
+ * The generated files `spool upgrade` refreshes on every run: the vite config
+ * and, for remotes, the CORS headers static hosts need.
+ */
+export function appConfigFiles(appName: string, app: AppConfig): FileMap {
+	const files: FileMap = { 'vite.config.ts': viteConfig(appName, app) }
 	// Hosts fetch remote assets cross-origin in production, and static hosts
 	// send no CORS headers by default. Cloudflare Pages and Netlify both read
 	// this file; it is inert elsewhere.
-	if (!isHost) {
+	if (app.type === 'remote') {
 		files['public/_headers'] = `/*\n  Access-Control-Allow-Origin: *\n`
-	}
-	if (isHost && app.remotes.length) {
-		files['src/remotes.d.ts'] = remoteTypings(app.remotes)
 	}
 	return files
 }
@@ -347,15 +383,16 @@ export function appFiles(m: Manifest, appName: string, app: AppConfig): FileMap 
  * Host files to rewrite when its remotes change. Only the ambient typings;
  * the vite config reads spool.json itself.
  */
-export function hostWiringFiles(host: AppConfig): FileMap {
+export function hostWiringFiles(m: Manifest, host: AppConfig): FileMap {
 	if (!host.remotes.length) return {}
-	return { 'src/remotes.d.ts': remoteTypings(host.remotes) }
+	return { 'src/remotes.d.ts': remoteTypings(remoteRefs(m, host)) }
 }
 
 /*
  *   FILE BUILDERS
  ***************************************************************************************************/
-function appPackageJson(appName: string): string {
+function appPackageJson(m: Manifest, appName: string, app: AppConfig): string {
+	const { dependencies, devDependencies } = appDependencies(m, app)
 	return json({
 		name: appName,
 		version: '0.0.0',
@@ -367,34 +404,30 @@ function appPackageJson(appName: string): string {
 			build: 'vite build',
 			preview: 'vite preview',
 		},
-		dependencies: {
-			react: TOOLCHAIN.react,
-			'react-dom': TOOLCHAIN['react-dom'],
-		},
-		devDependencies: {
-			'@module-federation/vite': TOOLCHAIN['@module-federation/vite'],
-			// The vite config and spool.vite.ts use node builtins, so apps
-			// need node types to type-check.
-			'@types/node': TOOLCHAIN['@types/node'],
-			'@types/react': TOOLCHAIN['@types/react'],
-			'@types/react-dom': TOOLCHAIN['@types/react-dom'],
-			'@vitejs/plugin-react': TOOLCHAIN['@vitejs/plugin-react'],
-			typescript: TOOLCHAIN.typescript,
-			vite: TOOLCHAIN.vite,
-		},
+		dependencies: sortKeys(dependencies),
+		devDependencies: sortKeys(devDependencies),
 	})
 }
 
-function appTsConfig(): string {
+function sortKeys(record: Record<string, string>): Record<string, string> {
+	return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)))
+}
+
+function appTsConfig(framework: Framework): string {
+	// Compiler options like the JSX runtime are per app, so one framework's
+	// settings never leak into another's through the shared base config.
+	const compilerOptions = TEMPLATES[framework].compilerOptions
 	return json({
 		extends: '../../tsconfig.base.json',
+		...(Object.keys(compilerOptions).length ? { compilerOptions } : {}),
 		include: ['src', 'vite.config.ts'],
 	})
 }
 
 function viteConfig(appName: string, app: AppConfig): string {
+	const plugin = TEMPLATES[app.framework].vitePlugin
 	return `import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+${plugin.importLine}
 import { federation } from "@module-federation/vite";
 import { spoolApp } from "${helperImport(app.path)}";
 
@@ -406,7 +439,7 @@ export default defineConfig(({ command }) => {
   return {
     server: app.server,
     preview: app.server,
-    plugins: [react(), federation(app.federation)],
+    plugins: [${plugin.call}, federation(app.federation)],
     // Module Federation needs top-level await; lock the build target.
     build: { target: "esnext", minify: false },
   };
@@ -414,7 +447,8 @@ export default defineConfig(({ command }) => {
 `
 }
 
-function indexHtml(appName: string): string {
+function indexHtml(appName: string, framework: Framework): string {
+	const entry = TEMPLATES[framework].htmlEntry
 	return `<!doctype html>
 <html lang="en">
   <head>
@@ -424,63 +458,12 @@ function indexHtml(appName: string): string {
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="${entry}"></script>
   </body>
 </html>
 `
 }
 
-function mainTsx(): string {
-	return `import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import App from "./App";
-
-createRoot(document.getElementById("root")!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-);
-`
-}
-
-function hostApp(appName: string, remotes: string[]): string {
-	const imports = remotes
-		.map(r => `const ${pascalCase(r)} = lazy(() => import("${r}/App"));`)
-		.join('\n')
-	const mounts = remotes
-		.map(
-			r =>
-				`        <section>
-          <h2>${r}</h2>
-          <Suspense fallback={<p>Loading ${r}...</p>}>
-            <${pascalCase(r)} />
-          </Suspense>
-        </section>`
-		)
-		.join('\n')
-	const noRemotes = `// No remotes wired yet. Add one with \`spool add <name> --host ${appName}\`.`
-	return `import { lazy, Suspense } from "react";
-
-${imports || noRemotes}
-
-export default function App() {
-  return (
-    <main style={{ fontFamily: "system-ui", padding: 24 }}>
-      <h1>${appName} (host)</h1>
-${mounts || '      <p>No remotes mounted yet.</p>'}
-    </main>
-  );
-}
-`
-}
-
-function remoteApp(appName: string): string {
-	return `export default function App() {
-  return (
-    <div style={{ fontFamily: "system-ui", padding: 16, border: "1px solid #ccc" }}>
-      <strong>${appName}</strong>: a remote module exposed via Module Federation.
-    </div>
-  );
-}
-`
+function remoteTypings(refs: RemoteRef[]): string {
+	return refs.map(ref => TEMPLATES[ref.framework].remoteTyping(ref.name)).join('')
 }

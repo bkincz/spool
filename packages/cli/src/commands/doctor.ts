@@ -3,15 +3,22 @@
  ***************************************************************************************************/
 import pc from 'picocolors'
 import { requireWorkspace } from '../core/workspace.js'
-import { diagnose } from '../core/doctor.js'
+import { diagnose, diagnoseRemotes } from '../core/doctor.js'
 import { log } from '../util/logger.js'
 
 /*
  *   DOCTOR
  ***************************************************************************************************/
-export async function doctor(): Promise<void> {
+export interface DoctorOptions {
+	remote?: boolean
+}
+
+export async function doctor(opts: DoctorOptions = {}): Promise<void> {
 	const ws = await requireWorkspace()
 	const issues = diagnose(ws)
+	if (opts.remote) {
+		issues.push(...(await diagnoseRemotes(ws)))
+	}
 
 	if (!issues.length) {
 		log.success(`${pc.bold(ws.manifest.name)}: no problems found`)

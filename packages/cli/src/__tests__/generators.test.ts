@@ -247,14 +247,128 @@ describe('appFiles (remote)', () => {
 describe('hostWiringFiles', () => {
 	it('regenerates only the typings when a host has remotes', () => {
 		const m = manifest()
-		const files = hostWiringFiles(m.apps.shell!)
+		const files = hostWiringFiles(m, m.apps.shell!)
 		expect(Object.keys(files)).toEqual(['src/remotes.d.ts'])
 		expect(files['src/remotes.d.ts']).toContain('declare module "dashboard/App"')
 	})
 
 	it('writes nothing when a host has no remotes', () => {
 		const m = makeManifest({ shell: host() })
-		expect(hostWiringFiles(m.apps.shell!)).toEqual({})
+		expect(hostWiringFiles(m, m.apps.shell!)).toEqual({})
+	})
+})
+
+/*
+ *   APP FILES - SVELTE
+ ***************************************************************************************************/
+describe('appFiles (svelte remote)', () => {
+	const m = makeManifest({
+		shell: host({ remotes: ['widget'] }),
+		widget: remote({
+			framework: 'svelte',
+			path: 'apps/widget',
+			exposes: { './App': './src/mount.ts' },
+		}),
+	})
+	const files = appFiles(m, 'widget', m.apps.widget!)
+
+	it('scaffolds svelte sources and the mount contract', () => {
+		expect(files['src/App.svelte']).toContain('Svelte remote')
+		expect(files['src/mount.ts']).toContain('export default function mountApp')
+		expect(files['src/main.ts']).toContain('mount(App')
+		expect(files['src/App.tsx']).toBeUndefined()
+		expect(files['src/main.tsx']).toBeUndefined()
+	})
+
+	it('uses the svelte vite plugin and entry point', () => {
+		expect(files['vite.config.ts']).toContain('@sveltejs/vite-plugin-svelte')
+		expect(files['vite.config.ts']).not.toContain('@vitejs/plugin-react')
+		expect(files['index.html']).toContain('/src/main.ts"')
+	})
+
+	it('declares svelte deps and no react deps', () => {
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.dependencies.svelte).toBeDefined()
+		expect(pkg.dependencies.react).toBeUndefined()
+		expect(pkg.devDependencies['@sveltejs/vite-plugin-svelte']).toBeDefined()
+	})
+
+	it('lets plain tsc resolve .svelte imports', () => {
+		expect(files['src/vite-env.d.ts']).toContain('declare module "*.svelte"')
+	})
+})
+
+describe('appFiles (react host with a svelte remote)', () => {
+	const m = makeManifest({
+		shell: host({ remotes: ['dashboard', 'widget'] }),
+		dashboard: remote(),
+		widget: remote({
+			framework: 'svelte',
+			path: 'apps/widget',
+			port: 5175,
+			exposes: { './App': './src/mount.ts' },
+		}),
+	})
+	const files = appFiles(m, 'shell', m.apps.shell!)
+
+	it('renders react remotes with lazy and mount remotes with a wrapper', () => {
+		expect(files['src/App.tsx']).toContain('lazy(() => import("dashboard/App"))')
+		expect(files['src/App.tsx']).toContain('function MountRemote')
+		expect(files['src/App.tsx']).toContain('<MountRemote load={loadWidget} />')
+	})
+
+	it('types each remote by its contract', () => {
+		const typings = files['src/remotes.d.ts']!
+		expect(typings).toContain('const Component: React.ComponentType')
+		expect(typings).toContain('const mount: (target: HTMLElement) => () => void')
+	})
+
+	it('needs no svelte deps, since mount-contract remotes are self-contained', () => {
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.dependencies.svelte).toBeUndefined()
+		expect(pkg.devDependencies['@sveltejs/vite-plugin-svelte']).toBeUndefined()
+	})
+})
+
+describe('appFiles (svelte host with a react remote)', () => {
+	const m = makeManifest({
+		shell: host({ framework: 'svelte', remotes: ['dashboard'] }),
+		dashboard: remote(),
+	})
+	const files = appFiles(m, 'shell', m.apps.shell!)
+
+	it('bridges react remotes and ships both frameworks', () => {
+		expect(files['src/react-bridge.ts']).toContain('createRoot')
+		expect(files['src/App.svelte']).toContain('mountReact(m.default')
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.dependencies.svelte).toBeDefined()
+		expect(pkg.dependencies.react).toBeDefined()
+		expect(pkg.dependencies['react-dom']).toBeDefined()
+	})
+
+	it('takes the react types for the bridge but not the react vite plugin', () => {
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.devDependencies['@types/react']).toBeDefined()
+		expect(pkg.devDependencies['@vitejs/plugin-react']).toBeUndefined()
+	})
+
+	it('guards mounts against unmounting before a remote import resolves', () => {
+		expect(files['src/App.svelte']).toContain('cancelled')
+	})
+})
+
+/*
+ *   TSCONFIG - PER-FRAMEWORK COMPILER OPTIONS
+ ***************************************************************************************************/
+describe('app tsconfig', () => {
+	it('keeps the JSX runtime per react app, out of the shared base', () => {
+		const m = makeManifest({
+			shell: host({ remotes: ['widget'] }),
+			widget: remote({ framework: 'svelte', path: 'apps/widget' }),
+		})
+		expect(workspaceFiles(m)['tsconfig.base.json']).not.toContain('jsx')
+		expect(appFiles(m, 'shell', m.apps.shell!)['tsconfig.json']).toContain('react-jsx')
+		expect(appFiles(m, 'widget', m.apps.widget!)['tsconfig.json']).not.toContain('jsx')
 	})
 })
 

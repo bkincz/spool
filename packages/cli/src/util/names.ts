@@ -9,3 +9,9 @@ export function pascalCase(name: string): string {
 		.map(word => word[0]!.toUpperCase() + word.slice(1))
 		.join('')
 }
+
+/** camelCase an app name for use as a variable identifier. */
+export function camelCase(name: string): string {
+	const pascal = pascalCase(name)
+	return pascal[0]!.toLowerCase() + pascal.slice(1)
+}
