@@ -330,7 +330,7 @@ export function appFiles(m: Manifest, appName: string, app: AppConfig): FileMap 
 		'src/App.tsx': isHost ? hostApp(appName, app.remotes) : remoteApp(appName),
 		'src/vite-env.d.ts': `/// <reference types="vite/client" />\n`,
 	}
-	
+
 	// Hosts fetch remote assets cross-origin in production, and static hosts
 	// send no CORS headers by default. Cloudflare Pages and Netlify both read
 	// this file; it is inert elsewhere.
