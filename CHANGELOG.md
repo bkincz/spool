@@ -1,6 +1,6 @@
 # Changelog
 
-## 2.1.0
+## 2.1.1
 
 Scaffolded workspaces now carry `@bkincz/spool` as a root dev dependency,
 pinned to the version that created them. A teammate can clone, install, and
@@ -17,6 +17,17 @@ app's buffered output so the reason is never hidden, a slow start (15s)
 falls back to streaming everything, and pipes, CI, and narrow windows get
 the panel inline instead.
 
+Extras picked together at create time now compose. With the state addon,
+every remote renders a working counter that increments the shared machine
+and the host displays the live count, so the cross-app state flow is visible
+the moment `spool dev` opens. The counter's button comes from the ladle ui
+package when both addons are picked, and the Playwright spec gains a test
+that clicks a remote's button and asserts the shell's count updates over
+federation. `spool addon` stays plain: applied retroactively, extras never
+rewrite app components you may have edited.
+
+## 2.1.0
+
 Added `spool addon`: adds extras to an existing workspace. Pass names
 (`spool addon ladle playwright`) or run it bare for a prompt that hides
 extras the workspace already has. It wires the manifest, declares shared
@@ -27,15 +38,6 @@ rerunning only fills gaps.
 The extras step in `spool create` now always asks unless `--addons` answers
 it. Runs without a TTY skip the prompt instead of hanging, so scripts and CI
 keep working either way; pass `--addons none` to be explicit.
-
-Extras picked together at create time now compose. With the state addon,
-every remote renders a working counter that increments the shared machine
-and the host displays the live count, so the cross-app state flow is visible
-the moment `spool dev` opens. The counter's button comes from the ladle ui
-package when both addons are picked, and the Playwright spec gains a test
-that clicks a remote's button and asserts the shell's count updates over
-federation. `spool addon` stays plain: applied retroactively, extras never
-rewrite app components you may have edited.
 
 ## 2.0.0
 
