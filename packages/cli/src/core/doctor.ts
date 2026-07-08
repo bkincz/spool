@@ -212,7 +212,10 @@ export async function diagnoseRemotes(ws: Workspace, env?: string): Promise<Diag
 	const issues: Diagnostic[] = []
 	if (env !== undefined && !remotes.some(([, app]) => app.urls?.[env])) {
 		issues.push(
-			warn('', `No remote has a "urls.${env}" entry in spool.json; checking each remote's "url" instead.`)
+			warn(
+				'',
+				`No remote has a "urls.${env}" entry in spool.json; checking each remote's "url" instead.`
+			)
 		)
 	}
 	const results = await Promise.all(
