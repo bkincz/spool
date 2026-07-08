@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1.0
+
+Added `spool addon`: adds extras to an existing workspace. Pass names
+(`spool addon ladle playwright`) or run it bare for a prompt that hides
+extras the workspace already has. It wires the manifest, declares shared
+deps in every app (updating stale ranges), patches the pnpm build-script
+allowlist with exact-key matching, and never overwrites existing files, so
+rerunning only fills gaps.
+
+The extras step in `spool create` now always asks unless `--addons` answers
+it. Runs without a TTY skip the prompt instead of hanging, so scripts and CI
+keep working either way; pass `--addons none` to be explicit.
+
 ## 2.0.0
 
 Multi-framework workspaces. Every app has a `framework` in `spool.json`

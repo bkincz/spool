@@ -32,14 +32,19 @@ vi.mock('../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) })
  ***************************************************************************************************/
 let dir: string
 let cwd: string
+let stdinTTY: boolean | undefined
 
 beforeEach(() => {
 	dir = freshDir('spool-prompt-')
 	cwd = process.cwd()
 	process.chdir(dir)
+	// Prompts only fire on a TTY; vitest's stdin is not one.
+	stdinTTY = process.stdin.isTTY
+	process.stdin.isTTY = true
 })
 
 afterEach(() => {
+	process.stdin.isTTY = stdinTTY as boolean
 	process.chdir(cwd)
 	removeDir(dir)
 	vi.clearAllMocks()
@@ -137,7 +142,22 @@ describe('create (interactive)', () => {
 		expect(existsSync(join(dir, 'packages/e2e/playwright.config.ts'))).toBe(true)
 	})
 
-	it('skips the addons prompt in fully flag-driven runs', async () => {
+	it('asks for addons even in fully flag-driven runs', async () => {
+		await create(undefined, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			here: true,
+		})
+
+		expect(p.multiselect).toHaveBeenCalled()
+		expect(existsSync(join(dir, 'packages'))).toBe(false)
+	})
+
+	it('skips the addons prompt without a TTY, where it could never resolve', async () => {
+		process.stdin.isTTY = false as never
+
 		await create(undefined, {
 			name: 'acme',
 			pm: 'pnpm',
@@ -147,7 +167,20 @@ describe('create (interactive)', () => {
 		})
 
 		expect(p.multiselect).not.toHaveBeenCalled()
-		expect(existsSync(join(dir, 'packages'))).toBe(false)
+		expect(existsSync(join(dir, 'spool.json'))).toBe(true)
+	})
+
+	it('skips the addons prompt when --addons is passed', async () => {
+		await create(undefined, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			addons: 'none',
+			here: true,
+		})
+
+		expect(p.multiselect).not.toHaveBeenCalled()
 	})
 
 	it('aborts without writing anything when a prompt is cancelled', async () => {

@@ -32,6 +32,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `spool dev [--only <list>]`     | Run all apps together, remotes first                                     |
 | `spool build [--only <list>]`   | Production build, remotes before hosts                                   |
 | `spool add <name>`              | Add an app and wire it in                                                |
+| `spool addon [list]`            | Add extras to an existing workspace                                      |
 | `spool remove <name> [--files]` | Remove an app and unwire it from hosts                                   |
 | `spool deploy [--only <list>]`  | Run each app's `deploy` command, remotes first                           |
 | `spool ci [--force]`            | Generate a path-filtered GitHub deploy workflow per deployable app       |
@@ -101,7 +102,7 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 
 ## Extras
 
-`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, state"`:
+`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, state"`. Missed one? `spool addon` adds it to an existing workspace later.
 
 - **Ladle**: a react design-system package in `packages/ui` with a component workshop. Open it with `pnpm --filter ui ladle`.
 - **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.

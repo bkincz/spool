@@ -136,7 +136,7 @@ async function upgradeAppPackage(
 }
 
 /** A dep keeps the section it already lives in; new ones join `section`. */
-function dependencyHome(
+export function dependencyHome(
 	pkg: PackageJsonShape,
 	dep: string,
 	section: 'dependencies' | 'devDependencies'
@@ -149,7 +149,7 @@ function dependencyHome(
 /*
  *   CHANGE WRITER
  ***************************************************************************************************/
-interface PackageJsonShape {
+export interface PackageJsonShape {
 	engines?: Record<string, string>
 	packageManager?: string
 	dependencies?: Record<string, string>

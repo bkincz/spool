@@ -67,7 +67,6 @@ export function workspaceFiles(m: Manifest, allowBuilds: string[] = []): FileMap
 	// dedicated file; npm and yarn read a `workspaces` field in package.json.
 	if (m.packageManager === 'pnpm') {
 		const builds = [...new Set(['esbuild', ...allowBuilds])].sort()
-		const yamlKey = (name: string): string => (name.startsWith('@') ? `"${name}"` : name)
 		files['pnpm-workspace.yaml'] =
 			`packages:\n  - "apps/*"\n  - "packages/*"\n\n# These postinstall scripts fetch platform binaries (esbuild via vite).\n# allowBuilds is the pnpm 11+ spelling; onlyBuiltDependencies covers pnpm 10.\nallowBuilds:\n${builds.map(build => `  ${yamlKey(build)}: true`).join('\n')}\nonlyBuiltDependencies:\n${builds.map(build => `  - ${yamlKey(build)}`).join('\n')}\n`
 	}
@@ -91,6 +90,9 @@ function gitignore(m: Manifest): string {
 
 /** Within vite's supported range; Node 20 is EOL and pnpm 11 needs 22.13+. */
 export const NODE_RANGE = '>=22.12.0'
+
+/** YAML keys starting with a reserved indicator (like @scope) need quoting. */
+export const yamlKey = (name: string): string => (name.startsWith('@') ? `"${name}"` : name)
 
 function workspacePackageJson(m: Manifest): string {
 	const pkg: Record<string, unknown> = {
