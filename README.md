@@ -30,11 +30,12 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | ------------------------------- | ------------------------------------------------------------------------ |
 | `spool create [dir]`            | Scaffold a workspace                                                     |
 | `spool dev [--only <list>]`     | Run all apps together, remotes first                                     |
-| `spool build [--only <list>]`   | Production build, remotes before hosts                                   |
+| `spool build [--only] [--env]`  | Production build, remotes before hosts                                   |
+| `spool preview [--only <list>]` | Serve the built apps locally                                             |
 | `spool add <name>`              | Add an app and wire it in                                                |
 | `spool addon [list]`            | Add extras to an existing workspace                                      |
 | `spool remove <name> [--files]` | Remove an app and unwire it from hosts                                   |
-| `spool deploy [--only <list>]`  | Run each app's `deploy` command, remotes first                           |
+| `spool deploy [--only] [--env]` | Run each app's `deploy` command, remotes first                           |
 | `spool ci [--force]`            | Generate a path-filtered GitHub deploy workflow per deployable app       |
 | `spool upgrade [--dry-run]`     | Regenerate spool-owned files and sync the toolchain to the installed CLI |
 | `spool doctor [--remote]`       | Check ports, wiring, and shared deps. `--remote` also probes deployed urls |
@@ -90,6 +91,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | `apps.<name>.framework`  | `react` (default), `svelte`, or `vue`                             |
 | `apps.<name>.port`       | Dev server port                                                   |
 | `apps.<name>.url`        | Optional. Deployed `mf-manifest.json`, used by host production builds |
+| `apps.<name>.urls`       | Optional. Per-environment manifests, e.g. `{ "staging": "https://..." }`. `--env` selects one |
 | `apps.<name>.deploy`     | Optional. Shell command `spool deploy` runs in the app folder     |
 | `apps.<name>.remotes`    | Remotes a host consumes                                           |
 | `apps.<name>.exposes`    | Modules a remote exposes                                          |
@@ -119,11 +121,16 @@ spool build
 spool deploy
 ```
 
+Before shipping, `spool preview` serves the built apps together on localhost, so you can click through the exact artifacts you are about to deploy. Hosts load remotes from wherever the build resolved them, so once a remote has a `url`, rebuild with `SPOOL_REMOTE_<NAME>` pointing at localhost to preview that remote's local build. spool warns you when this applies.
+
 A host resolves each remote in this order:
 
 1. `SPOOL_REMOTE_<NAME>` env var (dev and build)
-2. the remote's `url` in `spool.json` (production builds only)
-3. `http://localhost:<port>/mf-manifest.json`
+2. the remote's `urls` entry for `--env` / `SPOOL_ENV` (production builds only)
+3. the remote's `url` in `spool.json` (production builds only)
+4. `http://localhost:<port>/mf-manifest.json`
+
+For staging and friends, give a remote per-environment urls and build with `spool build --env staging`. `spool deploy --env staging` passes the name to your deploy commands as `SPOOL_ENV`, and `spool doctor --remote --env staging` probes those urls.
 
 Remotes ship a `public/_headers` with open CORS. Cloudflare Pages and Netlify read it as-is, and on Vercel you set the same header in `vercel.json`. Example deploy commands: `wrangler pages deploy dist --project-name=<p>`, `netlify deploy --prod --dir=dist`, `vercel deploy dist --prod`, `aws s3 sync dist s3://<bucket> --delete`.
 

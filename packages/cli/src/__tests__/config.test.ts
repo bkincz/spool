@@ -42,6 +42,36 @@ describe('emptyManifest', () => {
  *   PARSE MANIFEST
  ***************************************************************************************************/
 describe('parseManifest', () => {
+	it('rejects the rspack bundler with a friendly message', () => {
+		expect(() => parseManifest({ name: 'acme', bundler: 'rspack', apps: {} })).toThrow(
+			'not supported yet'
+		)
+	})
+
+	it('accepts per-environment urls on a remote', () => {
+		const manifest = parseManifest({
+			name: 'acme',
+			apps: {
+				dash: {
+					...remote(),
+					urls: { staging: 'https://staging.example.com/mf-manifest.json' },
+				},
+			},
+		})
+		expect(manifest.apps.dash!.urls).toEqual({
+			staging: 'https://staging.example.com/mf-manifest.json',
+		})
+	})
+
+	it('rejects a urls entry that is not a url', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { dash: { ...remote(), urls: { staging: 'not-a-url' } } },
+			})
+		).toThrow('Invalid')
+	})
+
 	it('fills per-app defaults for remotes and exposes', () => {
 		const manifest = parseManifest({
 			name: 'acme',

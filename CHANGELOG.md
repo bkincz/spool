@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.2.0
+
+Added `spool preview`: serves every app's production build locally, remotes
+first, with the same status panel as `spool dev`. Fresh scaffolds resolve
+remotes to the local preview servers, so the exact artifacts you are about
+to deploy run together on localhost before anything ships. It refuses to
+start without dist folders and points you at `spool build`, and it warns
+when a remote's deployed `url` means the built host loads that instead of
+the local server.
+
+Added environments. A remote can carry per-environment manifest urls in
+spool.json (`"urls": { "staging": "https://..." }`), and `spool build --env
+staging` selects them, falling back to `url`. The resolution order is now:
+`SPOOL_REMOTE_<NAME>` env var, the `urls` entry for `SPOOL_ENV`, `url`,
+local dev server. `spool deploy --env` hands the name to your deploy
+commands as `SPOOL_ENV`, and `spool doctor --remote --env staging` probes
+the staging urls. Doctor follows the same resolution as builds, including
+`SPOOL_REMOTE_<NAME>` overrides and an exported `SPOOL_ENV`. An `--env`
+that matches no remote's `urls` gets a warning instead of a silent
+fallback, and `spool build --env` refuses to run against a `spool.vite.ts`
+too old to read it.
+
+The manifest's `bundler` field previously accepted "rspack" without doing
+anything. It now errors with a clear message until rspack support is real,
+so the schema no longer makes promises the CLI does not keep. `spool
+upgrade` removes the field from old manifests, and also adds any root
+scripts (like `preview`) that fresh scaffolds carry.
+
+Scaffolded workspaces gained a `preview` script, and their dev and preview
+servers now answer with CORS enabled, which cross-origin host-to-remote
+fetches need under `vite preview`.
+
 ## 2.1.1
 
 Scaffolded workspaces now carry `@bkincz/spool` as a root dev dependency,

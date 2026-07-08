@@ -46,6 +46,7 @@ afterEach(() => {
 	process.chdir(cwd)
 	removeDir(dir)
 	process.exitCode = undefined
+	delete process.env.SPOOL_ENV
 	vi.clearAllMocks()
 	vi.restoreAllMocks()
 })
@@ -71,12 +72,27 @@ describe('dev', () => {
 describe('build', () => {
 	it('builds every app by default', async () => {
 		await build({})
-		expect(buildAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+		expect(buildAll).toHaveBeenCalledWith(
+			expect.objectContaining({ root: dir }),
+			undefined,
+			undefined
+		)
 	})
 
-	it('passes the only filter through', async () => {
-		await build({ only: 'dashboard' })
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'])
+	it('passes the only filter and env through', async () => {
+		await build({ only: 'dashboard', env: 'staging' })
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
+	})
+
+	it('treats an empty --env as no env', async () => {
+		await build({ env: '' })
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined)
+	})
+
+	it('reads an exported SPOOL_ENV when --env is absent', async () => {
+		process.env.SPOOL_ENV = 'staging'
+		await build({})
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging')
 	})
 })
 
@@ -86,12 +102,16 @@ describe('build', () => {
 describe('deploy', () => {
 	it('deploys every app by default', async () => {
 		await deploy({})
-		expect(deployAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+		expect(deployAll).toHaveBeenCalledWith(
+			expect.objectContaining({ root: dir }),
+			undefined,
+			undefined
+		)
 	})
 
-	it('passes the only filter through', async () => {
-		await deploy({ only: 'dashboard' })
-		expect(deployAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'])
+	it('passes the only filter and env through', async () => {
+		await deploy({ only: 'dashboard', env: 'staging' })
+		expect(deployAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
 	})
 })
 

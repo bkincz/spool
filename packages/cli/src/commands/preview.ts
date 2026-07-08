@@ -2,18 +2,17 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { requireWorkspace } from '../core/workspace.js'
-import { devAll } from '../core/orchestrator.js'
+import { previewAll } from '../core/orchestrator.js'
 import { splitList } from '../util/names.js'
 
 /*
- *   DEV
+ *   PREVIEW
  ***************************************************************************************************/
-export interface DevOptions {
+export interface PreviewOptions {
 	only?: string
 }
 
-export async function dev(opts: DevOptions): Promise<void> {
+export async function preview(opts: PreviewOptions): Promise<void> {
 	const ws = await requireWorkspace()
-	const only = opts.only === undefined ? undefined : splitList(opts.only)
-	await devAll(ws, only)
+	await previewAll(ws, opts.only === undefined ? undefined : splitList(opts.only))
 }
