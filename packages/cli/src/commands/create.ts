@@ -19,11 +19,18 @@ import {
 	type Manifest,
 } from '../core/config.js'
 import { workspaceFiles, appFiles, defaultExposes } from '../core/generators.js'
-import { ADDONS, ADDON_NAMES, type AddonName } from '../core/addons.js'
+import {
+	ADDONS,
+	ADDON_NAMES,
+	parseAddonList,
+	promptAddons,
+	type AddonName,
+} from '../core/addons.js'
 import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
-import { run } from '../util/exec.js'
+import { installDependencies } from '../core/install.js'
+import { splitList } from '../util/names.js'
 import { log, fail } from '../util/logger.js'
 
 /*
@@ -76,7 +83,7 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 	}
 
 	const manifest = buildManifest(inputs)
-	const addons = await resolveAddons(opts, inputs.interactive, manifest)
+	const addons = await resolveAddons(opts, manifest)
 	if (addons === null) {
 		p.cancel('Cancelled.')
 		return
@@ -97,8 +104,18 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 		for (const note of ADDONS[addon].notes(manifest)) log.step(note)
 	}
 
-	if (opts.install ?? true) await installDependencies(targetDir, manifest.packageManager)
-	else {
+	if (opts.install ?? true) {
+		const spinner = p.spinner()
+		spinner.start(`Installing dependencies with ${manifest.packageManager}`)
+		const installed = await installDependencies(manifest.packageManager, targetDir)
+		spinner.stop(
+			installed
+				? 'Dependencies installed.'
+				: pc.yellow(
+						`Install failed. Run \`${manifest.packageManager} install\` in the new folder to finish setup.`
+					)
+		)
+	} else {
 		log.step(
 			`Skipped install. Run \`${manifest.packageManager} install\` in the new folder when you are ready.`
 		)
@@ -176,47 +193,16 @@ async function resolveInputs(
 }
 
 /**
- * Optional extras from --addons ("ladle, playwright" or "none") or, in
- * interactive runs, a multiselect. Unavailable addons are hidden from the
- * prompt but fail loudly when asked for by flag.
+ * Optional extras. --addons ("ladle, playwright" or "none") answers without a
+ * prompt; otherwise every TTY run asks, so scripts should pass the flag.
+ * Unavailable addons are hidden from the prompt but fail loudly by flag.
  */
-async function resolveAddons(
-	opts: CreateOptions,
-	interactive: boolean,
-	manifest: Manifest
-): Promise<AddonName[] | null> {
-	if (opts.addons !== undefined) {
-		const names: AddonName[] = []
-		for (const entry of splitList(opts.addons)) {
-			if (entry === 'none') continue
-			if (!isAddonName(entry)) {
-				fail(`Unknown addon "${entry}". Use ${ADDON_NAMES.join(' or ')}, or "none".`)
-			}
-			const reason = ADDONS[entry].unavailable(manifest)
-			if (reason) fail(reason)
-			names.push(entry)
-		}
-		return [...new Set(names)]
-	}
-	if (!interactive) return []
-
-	const options = ADDON_NAMES.filter(name => !ADDONS[name].unavailable(manifest)).map(name => ({
-		value: name,
-		label: ADDONS[name].label,
-		hint: ADDONS[name].hint,
-	}))
-	if (!options.length) return []
-
-	const answer = await p.multiselect({
-		message: 'Extras to include? (press enter to skip)',
-		options,
-		required: false,
-	})
-	return p.isCancel(answer) ? null : (answer as AddonName[])
-}
-
-function isAddonName(value: string): value is AddonName {
-	return (ADDON_NAMES as string[]).includes(value)
+async function resolveAddons(opts: CreateOptions, manifest: Manifest): Promise<AddonName[] | null> {
+	if (opts.addons !== undefined) return parseAddonList(opts.addons, manifest)
+	return promptAddons(
+		'Extras to include? (press enter to skip)',
+		ADDON_NAMES.filter(name => !ADDONS[name].unavailable(manifest))
+	)
 }
 
 /** Host name and framework, from --host ("name" or "name:framework") or prompts. */
@@ -310,24 +296,6 @@ async function scaffold(targetDir: string, manifest: Manifest, addons: AddonName
 	])
 }
 
-async function installDependencies(
-	targetDir: string,
-	packageManager: Manifest['packageManager']
-): Promise<void> {
-	const spinner = p.spinner()
-	spinner.start(`Installing dependencies with ${packageManager}`)
-	try {
-		await run(packageManager, ['install'], { cwd: targetDir, stdio: 'ignore' })
-		spinner.stop('Dependencies installed.')
-	} catch {
-		spinner.stop(
-			pc.yellow(
-				`Install failed. Run \`${packageManager} install\` in the new folder to finish setup.`
-			)
-		)
-	}
-}
-
 /*
  *   HELPERS
  ***************************************************************************************************/
@@ -362,13 +330,6 @@ function buildManifest({ name, host, remotes, packageManager }: CreateInputs): M
 	}
 
 	return manifest
-}
-
-function splitList(value: string): string[] {
-	return value
-		.split(',')
-		.map(item => item.trim())
-		.filter(Boolean)
 }
 
 function ensureValid(value: string, label: string): void {

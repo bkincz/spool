@@ -2,9 +2,14 @@
 /*
  *   CREATE ADDONS
  ***************************************************************************************************/
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import * as p from '@clack/prompts'
 import type { Manifest } from './config.js'
 import { NODE_RANGE, type FileMap } from './generators.js'
 import { TOOLCHAIN } from './versions.js'
+import { splitList } from '../util/names.js'
+import { fail } from '../util/logger.js'
 
 const ADDON_DEPS = {
 	'@ladle/react': '^5.1.0',
@@ -19,6 +24,8 @@ export interface Addon {
 	hint: string
 	/** Why this addon cannot be added to the workspace, or undefined when it can. */
 	unavailable(m: Manifest): string | undefined
+	/** Whether the workspace already has this addon. */
+	present(root: string, m: Manifest): boolean
 	/** Mutates the manifest before anything is written (e.g. adds `shared` entries). */
 	apply?(m: Manifest): void
 	/** Files to write, relative to the workspace root. */
@@ -37,6 +44,7 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
 			Object.values(m.apps).some(app => app.framework === 'react')
 				? undefined
 				: 'Ladle is react-based; it needs at least one react app in the workspace.',
+		present: root => existsSync(join(root, 'packages/ui')),
 		files: () => ladleFiles(),
 		allowBuilds: ['@swc/core', 'msw'],
 		notes: m => [`ladle: ${runIn(m, 'ui', 'ladle')} opens the component workshop`],
@@ -48,6 +56,7 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
 			Object.values(m.apps).some(app => app.type === 'host')
 				? undefined
 				: 'Playwright e2e tests need a host app to visit.',
+		present: root => existsSync(join(root, 'packages/e2e')),
 		files: m => playwrightFiles(m),
 		allowBuilds: [],
 		notes: m => [
@@ -58,6 +67,7 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
 		label: 'Shared state',
 		hint: 'a state machine every app shares as a federation singleton (@bkincz/clutch)',
 		unavailable: () => undefined,
+		present: (_root, m) => m.shared.includes('@bkincz/clutch'),
 		apply: m => {
 			const entries = ['@bkincz/clutch']
 			if (Object.values(m.apps).some(app => app.framework === 'react')) {
@@ -82,6 +92,45 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
 export type AddonName = keyof typeof ADDONS
 
 export const ADDON_NAMES = Object.keys(ADDONS) as AddonName[]
+
+export function isAddonName(value: string): value is AddonName {
+	return (ADDON_NAMES as string[]).includes(value)
+}
+
+/** Parses a comma list of addon names ("none" entries are dropped), failing on
+ * unknown or unavailable ones. */
+export function parseAddonList(value: string, m: Manifest): AddonName[] {
+	const names: AddonName[] = []
+	for (const entry of splitList(value)) {
+		if (entry === 'none') continue
+		if (!isAddonName(entry)) {
+			fail(`Unknown addon "${entry}". Use ${ADDON_NAMES.join(' or ')}, or "none".`)
+		}
+		const reason = ADDONS[entry].unavailable(m)
+		if (reason) fail(reason)
+		names.push(entry)
+	}
+	return [...new Set(names)]
+}
+
+/** Multiselect over `names`. Non-TTY runs get no addons, since a prompt could never resolve. */
+export async function promptAddons(
+	message: string,
+	names: AddonName[]
+): Promise<AddonName[] | null> {
+	if (!names.length || !process.stdin.isTTY) return []
+
+	const answer = await p.multiselect({
+		message,
+		options: names.map(name => ({
+			value: name,
+			label: ADDONS[name].label,
+			hint: ADDONS[name].hint,
+		})),
+		required: false,
+	})
+	return p.isCancel(answer) ? null : (answer as AddonName[])
+}
 
 /*
  *   HELPERS

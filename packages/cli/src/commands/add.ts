@@ -17,7 +17,7 @@ import { TEMPLATES, remoteRef, remoteRefs } from '../core/templates/index.js'
 import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
-import { run } from '../util/exec.js'
+import { installDependencies } from '../core/install.js'
 import { log, fail } from '../util/logger.js'
 
 /*
@@ -96,12 +96,8 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 		return
 	}
 	log.step(`Linking the new app with ${pm} install`)
-	try {
-		await run(pm, ['install'], { cwd: ws.root, stdio: 'ignore' })
-		log.step('Run `spool dev` to start it.')
-	} catch {
-		log.warn(`Install failed. Run \`${pm} install\` before \`spool dev\`.`)
-	}
+	if (await installDependencies(pm, ws.root)) log.step('Run `spool dev` to start it.')
+	else log.warn(`Install failed. Run \`${pm} install\` before \`spool dev\`.`)
 }
 
 /*
