@@ -2,9 +2,9 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-CLI for micro frontends. Scaffolds a monorepo of Module Federation apps on Vite, runs them together with one command, and keeps all federation wiring in a single `spool.json`.
+spool is a small CLI for building micro frontends. It scaffolds a monorepo of Module Federation apps on Vite, runs them together with one command, and keeps all the wiring in a single `spool.json`. Describe your apps once and spool handles the rest.
 
-**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev) — browse, search, and the player bar are independently deployed remotes sharing one player state through [@bkincz/clutch](https://github.com/bkincz/clutch).
+**Live demo:** [spool-demo-shell.pages.dev](https://spool-demo-shell.pages.dev), a music UI where the browse view, search, and player bar are independently deployed remotes sharing one player state through [@bkincz/clutch](https://github.com/bkincz/clutch).
 
 ## Install
 
@@ -12,7 +12,7 @@ CLI for micro frontends. Scaffolds a monorepo of Module Federation apps on Vite,
 npm install -g @bkincz/spool
 ```
 
-Needs Node 22.12+. Workspaces run on pnpm, npm, or yarn.
+You'll need Node 22.12 or newer. Workspaces run on pnpm, npm, or yarn.
 
 ## Quick start
 
@@ -22,11 +22,11 @@ cd acme
 spool dev
 ```
 
-Open http://localhost:5173. Run `spool create` with no arguments to be prompted instead.
+Open http://localhost:5173 to see the host with its remotes mounted. Prefer prompts? Just run `spool create` on its own.
 
 ## Commands
 
-| Command                         | Does                                                                     |
+| Command                         | What it does                                                             |
 | ------------------------------- | ------------------------------------------------------------------------ |
 | `spool create [dir]`            | Scaffold a workspace                                                     |
 | `spool dev [--only <list>]`     | Run all apps together, remotes first                                     |
@@ -36,7 +36,7 @@ Open http://localhost:5173. Run `spool create` with no arguments to be prompted 
 | `spool deploy [--only <list>]`  | Run each app's `deploy` command, remotes first                           |
 | `spool ci [--force]`            | Generate a path-filtered GitHub deploy workflow per deployable app       |
 | `spool upgrade [--dry-run]`     | Regenerate spool-owned files and sync the toolchain to the installed CLI |
-| `spool doctor [--remote]`       | Check ports, wiring, shared deps; `--remote` also probes deployed urls   |
+| `spool doctor [--remote]`       | Check ports, wiring, and shared deps. `--remote` also probes deployed urls |
 
 ### create
 
@@ -51,7 +51,7 @@ Open http://localhost:5173. Run `spool create` with no arguments to be prompted 
 | `--here`            | Scaffold into the current folder                            |
 | `--no-install`      | Skip the install step                                       |
 
-Anything left out is prompted. Names are lowercase with single hyphens, e.g. `acme-frontend`.
+Anything you leave out, spool asks for. Names are lowercase with single hyphens, like `acme-frontend`.
 
 ### add
 
@@ -63,11 +63,11 @@ Anything left out is prompted. Names are lowercase with single hyphens, e.g. `ac
 | `--framework <fw>` | `react`, `svelte`, or `vue`                        |
 | `--no-install`     | Skip the install step                              |
 
-`spool add` updates `spool.json`, host typings, and bridge files, then prints the mount snippet to paste in. Your components are never edited.
+`spool add` updates `spool.json`, host typings, and bridge files, then prints the mount snippet to paste in. It never edits your components.
 
 ## The manifest
 
-All wiring lives in `spool.json`; each app's `vite.config.ts` reads it through `spool.vite.ts` when Vite starts. Edit the manifest, never the configs.
+Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it through `spool.vite.ts` when Vite starts, so the manifest is the only thing you ever edit.
 
 ```jsonc
 {
@@ -93,21 +93,19 @@ All wiring lives in `spool.json`; each app's `vite.config.ts` reads it through `
 | `apps.<name>.remotes`    | Remotes a host consumes                                           |
 | `apps.<name>.exposes`    | Modules a remote exposes                                          |
 
-Unknown keys fail loudly. Run `spool doctor` after hand-editing.
+Typos fail loudly instead of being silently dropped, and `spool doctor` catches the rest after hand-editing.
 
 ## Frameworks
 
-Frameworks mix freely in one workspace; each app has its own. React remotes expose a component; svelte and vue remotes expose a mount function (`(el) => cleanup`). Hosts consume each remote by its contract, including a react bridge on non-react hosts. `shared` applies per app: entries an app does not declare in its own package.json are dropped from its federation config, so a svelte remote never tries to share react.
+Mix react, svelte, and vue freely. Every app picks its own framework. React remotes expose a component, svelte and vue remotes expose a mount function, and hosts consume each remote by its contract (non-react hosts get a small react bridge). Sharing applies per app: entries an app does not declare in its own package.json are dropped from its federation config, so a svelte remote never tries to share react.
 
 ## Extras
 
-```bash
-spool create acme --addons "ladle, playwright, state"
-```
+`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, state"`:
 
-- **Ladle** — react design-system package in `packages/ui` with a component workshop. Run: `pnpm --filter ui ladle`.
-- **Playwright** — e2e tests in `packages/e2e` that boot the workspace and assert the host mounts every remote over federation. Run `npx playwright install` once, then `pnpm --filter e2e test`.
-- **Shared state** — [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton plus a `sharedMachine` store module in every app: one state instance per page, across react, svelte, and vue. Bump the store's `contract` when its state shape changes.
+- **Ladle**: a react design-system package in `packages/ui` with a component workshop. Open it with `pnpm --filter ui ladle`.
+- **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.
+- **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. Bump the store's `contract` when the state shape changes.
 
 ## Deploying
 
@@ -124,7 +122,7 @@ A host resolves each remote in this order:
 2. the remote's `url` in `spool.json` (production builds only)
 3. `http://localhost:<port>/mf-manifest.json`
 
-Remotes ship a `public/_headers` with open CORS (Cloudflare Pages and Netlify read it; on Vercel set the header in `vercel.json`). Example deploy commands: `wrangler pages deploy dist --project-name=<p>`, `netlify deploy --prod --dir=dist`, `vercel deploy dist --prod`, `aws s3 sync dist s3://<bucket> --delete`.
+Remotes ship a `public/_headers` with open CORS. Cloudflare Pages and Netlify read it as-is, and on Vercel you set the same header in `vercel.json`. Example deploy commands: `wrangler pages deploy dist --project-name=<p>`, `netlify deploy --prod --dir=dist`, `vercel deploy dist --prod`, `aws s3 sync dist s3://<bucket> --delete`.
 
 ## License
 
