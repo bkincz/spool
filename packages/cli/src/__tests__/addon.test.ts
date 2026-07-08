@@ -72,6 +72,8 @@ describe('addon', () => {
 				JSON.parse(read(`apps/${app}/package.json`)).dependencies['@bkincz/clutch']
 			).toBeDefined()
 			expect(read(`apps/${app}/src/state/counter.ts`)).toContain("'acme:counter'")
+			// Retroactive adds never rewrite app components with the example.
+			expect(read(`apps/${app}/src/App.tsx`)).not.toContain('counterMachine')
 		}
 	})
 

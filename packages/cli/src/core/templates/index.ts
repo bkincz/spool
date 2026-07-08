@@ -22,6 +22,13 @@ export interface MountHint {
 	lines: string[]
 }
 
+export interface TemplateExtras {
+	stateExample: boolean
+	uiButton: boolean
+}
+
+export const NO_EXTRAS: TemplateExtras = { stateExample: false, uiButton: false }
+
 export interface FrameworkTemplate {
 	/** The contract this framework's remotes expose as "./App". */
 	remoteContract: RemoteContract
@@ -38,7 +45,12 @@ export interface FrameworkTemplate {
 	/** Ambient module declaration for one remote of this framework. */
 	remoteTyping(name: string): string
 	/** App sources: the entry file plus the App component, host or remote flavored. */
-	sourceFiles(appName: string, isHost: boolean, refs: RemoteRef[]): Record<string, string>
+	sourceFiles(
+		appName: string,
+		isHost: boolean,
+		refs: RemoteRef[],
+		extras: TemplateExtras
+	): Record<string, string>
 	/** Extra files a host of this framework needs to mount foreign-framework remotes. */
 	bridgeFiles(refs: RemoteRef[]): Record<string, string>
 	/** How a host of this framework mounts `ref`; printed by `spool add`. */

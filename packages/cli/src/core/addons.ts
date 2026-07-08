@@ -6,6 +6,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import * as p from '@clack/prompts'
 import type { Manifest } from './config.js'
+import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
+import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_FILE } from './templates/bridges.js'
 import { NODE_RANGE, type FileMap } from './generators.js'
 import { TOOLCHAIN } from './versions.js'
 import { splitList } from '../util/names.js'
@@ -28,8 +30,8 @@ export interface Addon {
 	present(root: string, m: Manifest): boolean
 	/** Mutates the manifest before anything is written (e.g. adds `shared` entries). */
 	apply?(m: Manifest): void
-	/** Files to write, relative to the workspace root. */
-	files(m: Manifest): FileMap
+	/** Files to write, relative to the workspace root. Extras only flow at create time. */
+	files(m: Manifest, extras?: TemplateExtras): FileMap
 	/** Dependencies whose postinstall scripts pnpm must allow. */
 	allowBuilds: string[]
 	/** Printed after scaffolding. */
@@ -57,7 +59,7 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
 				? undefined
 				: 'Playwright e2e tests need a host app to visit.',
 		present: root => existsSync(join(root, 'packages/e2e')),
-		files: m => playwrightFiles(m),
+		files: (m, extras) => playwrightFiles(m, extras ?? NO_EXTRAS),
 		allowBuilds: [],
 		notes: m => [
 			`playwright: run \`npx playwright install\` once, then ${runIn(m, 'e2e', 'test')}`,
@@ -93,12 +95,17 @@ export type AddonName = keyof typeof ADDONS
 
 export const ADDON_NAMES = Object.keys(ADDONS) as AddonName[]
 
+export function templateExtras(addons: AddonName[]): TemplateExtras {
+	return {
+		stateExample: addons.includes('state'),
+		uiButton: addons.includes('state') && addons.includes('ladle'),
+	}
+}
+
 export function isAddonName(value: string): value is AddonName {
 	return (ADDON_NAMES as string[]).includes(value)
 }
 
-/** Parses a comma list of addon names ("none" entries are dropped), failing on
- * unknown or unavailable ones. */
 export function parseAddonList(value: string, m: Manifest): AddonName[] {
 	const names: AddonName[] = []
 	for (const entry of splitList(value)) {
@@ -229,7 +236,7 @@ export const counterMachine = sharedMachine(
 `
 	const files: FileMap = {}
 	for (const app of Object.values(m.apps)) {
-		files[`${app.path}/src/state/counter.ts`] = store
+		files[`${app.path}/${STATE_STORE_FILE}`] = store
 	}
 	return files
 }
@@ -237,7 +244,7 @@ export const counterMachine = sharedMachine(
 /*
  *   PLAYWRIGHT
  ***************************************************************************************************/
-function playwrightFiles(m: Manifest): FileMap {
+function playwrightFiles(m: Manifest, extras: TemplateExtras): FileMap {
 	const [hostName, host] = Object.entries(m.apps).find(([, app]) => app.type === 'host')!
 	const origin = `http://localhost:${host.port}`
 
@@ -252,6 +259,17 @@ function playwrightFiles(m: Manifest): FileMap {
 		? `
   await expect(page.getByText(/exposed via Module Federation/)).toHaveCount(${host.remotes.length});`
 		: ''
+	const stateTest =
+		extras.stateExample && host.remotes.length
+			? `
+
+test("remote clicks update the shell's shared state", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByTestId("${STATE_COUNT_TESTID}")).toHaveText("${STATE_COUNT_TEXT} 0");
+  await page.getByRole("button", { name: "Increment" }).first().click();
+  await expect(page.getByTestId("${STATE_COUNT_TESTID}")).toHaveText("${STATE_COUNT_TEXT} 1");
+});`
+			: ''
 
 	return {
 		'packages/e2e/package.json': json({
@@ -294,7 +312,7 @@ export default defineConfig({
 test("${hostName} mounts every remote", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "${hostName} (host)" })).toBeVisible();${remoteChecks}${loadedCheck}
-});
+});${stateTest}
 `,
 	}
 }

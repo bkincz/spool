@@ -3,8 +3,14 @@
  ***************************************************************************************************/
 import { HELPER_FILE, type AppConfig, type Framework, type Manifest } from './config.js'
 import { PRETTIER_OPTIONS } from './format.js'
-import { appDependencies, PNPM_VERSION, TOOLCHAIN } from './versions.js'
-import { TEMPLATES, remoteRefs, type RemoteRef } from './templates/index.js'
+import { appDependencies, CLI_VERSION, PNPM_VERSION, TOOLCHAIN } from './versions.js'
+import {
+	NO_EXTRAS,
+	TEMPLATES,
+	remoteRefs,
+	type RemoteRef,
+	type TemplateExtras,
+} from './templates/index.js'
 
 /*
  *   TYPES
@@ -113,8 +119,11 @@ function workspacePackageJson(m: Manifest): string {
 	} else {
 		pkg.workspaces = ['apps/*', 'packages/*']
 	}
-	// The root tsconfig type-checks spool.vite.ts, which uses node builtins.
+	// The workspace carries its own spool, so a fresh clone runs `<pm> dev`
+	// with no global install. typescript and @types/node let the root
+	// tsconfig type-check spool.vite.ts, which uses node builtins.
 	pkg.devDependencies = {
+		'@bkincz/spool': `^${CLI_VERSION}`,
 		'@types/node': TOOLCHAIN['@types/node'],
 		typescript: TOOLCHAIN.typescript,
 	}
@@ -350,15 +359,20 @@ export function defaultExposes(framework: Framework): Record<string, string> {
 	return { './App': TEMPLATES[framework].exposeEntry }
 }
 
-export function appFiles(m: Manifest, appName: string, app: AppConfig): FileMap {
+export function appFiles(
+	m: Manifest,
+	appName: string,
+	app: AppConfig,
+	extras: TemplateExtras = NO_EXTRAS
+): FileMap {
 	const isHost = app.type === 'host'
 	const refs = isHost ? remoteRefs(m, app) : []
 	const files: FileMap = {
-		'package.json': appPackageJson(m, appName, app),
+		'package.json': appPackageJson(m, appName, app, extras),
 		'tsconfig.json': appTsConfig(app.framework),
 		'index.html': indexHtml(appName, app.framework),
 		'src/vite-env.d.ts': TEMPLATES[app.framework].viteEnv,
-		...TEMPLATES[app.framework].sourceFiles(appName, isHost, refs),
+		...TEMPLATES[app.framework].sourceFiles(appName, isHost, refs, extras),
 		...appConfigFiles(appName, app),
 	}
 
@@ -395,8 +409,18 @@ export function hostWiringFiles(m: Manifest, host: AppConfig): FileMap {
 /*
  *   FILE BUILDERS
  ***************************************************************************************************/
-function appPackageJson(m: Manifest, appName: string, app: AppConfig): string {
+function appPackageJson(
+	m: Manifest,
+	appName: string,
+	app: AppConfig,
+	extras: TemplateExtras
+): string {
 	const { dependencies, devDependencies } = appDependencies(m, app)
+	// The example button lives in the ladle ui workspace package; npm and yarn
+	// link workspace packages by bare name, pnpm needs the workspace protocol.
+	if (extras.uiButton && app.framework === 'react' && app.type === 'remote') {
+		dependencies.ui = m.packageManager === 'pnpm' ? 'workspace:*' : '*'
+	}
 	return json({
 		name: appName,
 		version: '0.0.0',

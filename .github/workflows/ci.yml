@@ -1,4 +1,4 @@
-﻿name: CI
+name: CI
 
 on:
     push:
@@ -121,6 +121,15 @@ jobs:
               shell: bash
               working-directory: ${{ runner.temp }}/smoke
               run: node "$GITHUB_WORKSPACE/packages/cli/dist/index.js" add widget --framework svelte --no-install
+
+            # The scaffold pins the CLI's own version, which is not on npm yet
+            # for unreleased builds; point it at the local package so the smoke
+            # always exercises the code under review.
+            - name: Link the local CLI into the scaffold
+              shell: bash
+              working-directory: ${{ runner.temp }}/smoke
+              run: |
+                  node -e 'const fs=require("fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));pkg.devDependencies["@bkincz/spool"]="file:"+process.env.GITHUB_WORKSPACE.replaceAll("\\","/")+"/packages/cli";fs.writeFileSync("package.json",JSON.stringify(pkg,null,"\t")+"\n");'
 
             # A fresh scaffold has no lockfile, and pnpm defaults to
             # --frozen-lockfile on CI, which errors when the lockfile is absent.

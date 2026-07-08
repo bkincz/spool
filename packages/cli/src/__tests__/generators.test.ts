@@ -74,9 +74,9 @@ describe('workspaceFiles', () => {
 		expect(files['pnpm-workspace.yaml']).toContain('apps/*')
 	})
 
-	it('does not add the cli as a workspace dependency', () => {
+	it('carries spool as a dev dependency so fresh clones can run the scripts', () => {
 		const pkg = JSON.parse(files['package.json']!)
-		expect(pkg.devDependencies?.['@bkincz/spool']).toBeUndefined()
+		expect(pkg.devDependencies['@bkincz/spool']).toMatch(/^\^\d+\.\d+\.\d+/)
 		expect(pkg.scripts).toMatchObject({ dev: 'spool dev', build: 'spool build' })
 	})
 
@@ -467,6 +467,89 @@ describe('appFiles (mount-contract hosts with no remotes)', () => {
 		)
 		const vueM = makeManifest({ shell: host({ framework: 'vue' }) })
 		expect(appFiles(vueM, 'shell', vueM.apps.shell!)['src/App.vue']).not.toContain('import')
+	})
+})
+
+/*
+ *   APP FILES - STATE EXAMPLE EXTRAS
+ ***************************************************************************************************/
+describe('appFiles (state example extras)', () => {
+	const plain = { stateExample: true, uiButton: false }
+	const withUi = { stateExample: true, uiButton: true }
+	const m = makeManifest({
+		shell: host({ remotes: ['dash', 'widget', 'vapp'] }),
+		dash: remote({ path: 'apps/dash' }),
+		widget: remote({
+			framework: 'svelte',
+			path: 'apps/widget',
+			port: 5175,
+			exposes: { './App': './src/mount.ts' },
+		}),
+		vapp: remote({
+			framework: 'vue',
+			path: 'apps/vapp',
+			port: 5176,
+			exposes: { './App': './src/mount.ts' },
+		}),
+	})
+
+	it('gives react remotes a counter with a plain button by default', () => {
+		const app = appFiles(m, 'dash', m.apps.dash!, plain)['src/App.tsx']!
+		expect(app).toContain('useMachine(counterMachine)')
+		expect(app).toContain('<button onClick={increment}>Increment</button>')
+		expect(app).not.toContain('from "ui"')
+	})
+
+	it('uses the ladle ui button when both addons are picked', () => {
+		const files = appFiles(m, 'dash', m.apps.dash!, withUi)
+		expect(files['src/App.tsx']).toContain('import { Button } from "ui";')
+		expect(files['src/App.tsx']).toContain('<Button onClick={increment}>Increment</Button>')
+		expect(JSON.parse(files['package.json']!).dependencies.ui).toBe('workspace:*')
+	})
+
+	it('never puts the ui dep on hosts or non-react apps', () => {
+		expect(
+			JSON.parse(appFiles(m, 'shell', m.apps.shell!, withUi)['package.json']!).dependencies.ui
+		).toBeUndefined()
+		expect(
+			JSON.parse(appFiles(m, 'widget', m.apps.widget!, withUi)['package.json']!).dependencies
+				.ui
+		).toBeUndefined()
+	})
+
+	it('shows the shared count on the host with a stable test id', () => {
+		const app = appFiles(m, 'shell', m.apps.shell!, plain)['src/App.tsx']!
+		expect(app).toContain('data-testid="shell-count"')
+		expect(app).toContain('useMachine(counterMachine)')
+	})
+
+	it('wires the counter into svelte and vue remotes with their own syntax', () => {
+		const svelteApp = appFiles(m, 'widget', m.apps.widget!, plain)['src/App.svelte']!
+		expect(svelteApp).toContain('counterMachine.mutate')
+		expect(svelteApp).toContain('<button on:click={increment}>Increment</button>')
+
+		const vueApp = appFiles(m, 'vapp', m.apps.vapp!, plain)['src/App.vue']!
+		expect(vueApp).toContain('counterMachine.mutate')
+		expect(vueApp).toContain('<button @click="increment">Increment</button>')
+	})
+
+	it('shows the shared count on svelte and vue hosts too', () => {
+		const svelteM = makeManifest({ shell: host({ framework: 'svelte' }) })
+		expect(appFiles(svelteM, 'shell', svelteM.apps.shell!, plain)['src/App.svelte']).toContain(
+			'data-testid="shell-count"'
+		)
+		const vueM = makeManifest({ shell: host({ framework: 'vue' }) })
+		expect(appFiles(vueM, 'shell', vueM.apps.shell!, plain)['src/App.vue']).toContain(
+			'data-testid="shell-count"'
+		)
+	})
+
+	it('changes nothing when no extras are passed', () => {
+		const app = appFiles(m, 'dash', m.apps.dash!)['src/App.tsx']!
+		expect(app).not.toContain('counterMachine')
+		expect(
+			JSON.parse(appFiles(m, 'dash', m.apps.dash!)['package.json']!).dependencies.ui
+		).toBeUndefined()
 	})
 })
 

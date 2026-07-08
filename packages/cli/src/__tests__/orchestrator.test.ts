@@ -61,7 +61,14 @@ beforeEach(() => {
 	vi.spyOn(log, 'success').mockImplementation(() => {})
 	vi.spyOn(log, 'warn').mockImplementation(() => {})
 	vi.spyOn(log, 'error').mockImplementation(() => {})
+	vi.spyOn(log, 'plain').mockImplementation(() => {})
 })
+
+/** Feeds the vite startup lines that mark an app as ready. */
+function emitReady(child: FakeChild, port: number): void {
+	child.stdout.emit('data', Buffer.from('  VITE v8.1.3  ready in 500 ms\n'))
+	child.stdout.emit('data', Buffer.from(`  ➜  Local:   http://localhost:${port}/\n`))
+}
 
 afterEach(() => {
 	process.removeAllListeners('SIGINT')
@@ -140,14 +147,169 @@ describe('devAll', () => {
 		expect(spawnProcess).not.toHaveBeenCalled()
 	})
 
-	it('prefixes each line of a child process output', async () => {
+	it('prefixes each line of a child process output once servers are ready', async () => {
 		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 		void devAll(ws)
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
 
+		emitReady(children[0]!, 5174)
+		await vi.waitFor(() =>
+			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('dev servers ready'))
+		)
 		children[0]!.stdout.emit('data', Buffer.from('hello\n'))
 		expect(write).toHaveBeenCalledWith(expect.stringContaining('hello'))
+	})
+
+	it('buffers startup noise and prints one summary when every app is ready', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+		children[0]!.stdout.emit('data', Buffer.from('Failed to resolve dependency: noise\n'))
+		expect(write).not.toHaveBeenCalled()
+
+		emitReady(children[0]!, 5174)
+		emitReady(children[1]!, 5173)
+		// The trailing banner chunk lands inside the grace window and stays buffered.
+		children[1]!.stdout.emit('data', Buffer.from('  ➜  Network: use --host to expose\n'))
+
+		await vi.waitFor(() =>
+			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('dev servers ready'))
+		)
+		const rows = vi.mocked(log.plain).mock.calls.map(call => String(call[0]))
+		const shellRow = rows.find(row => row.includes('shell'))!
+		expect(shellRow).toContain('host · react')
+		expect(shellRow).toContain('http://localhost:5173/')
+		// The host row comes before the remote's, and the shared vite version
+		// moves to the footer.
+		expect(rows.indexOf(shellRow)).toBeLessThan(
+			rows.findIndex(row => row.includes('dashboard'))
+		)
+		expect(rows.some(row => row.includes('vite 8.1.3'))).toBe(true)
+		// The buffered noise never reaches the terminal.
+		expect(write).not.toHaveBeenCalled()
+
+		children[0]!.stdout.emit('data', Buffer.from('hmr update\n'))
+		expect(write).toHaveBeenCalledWith(expect.stringContaining('hmr update'))
+	})
+
+	it('anchors the panel with a scroll region on a real terminal', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const stdout = process.stdout as unknown as {
+			isTTY: boolean
+			rows: number
+			columns: number
+		}
+		const original = { isTTY: stdout.isTTY, rows: stdout.rows, columns: stdout.columns }
+		Object.assign(stdout, { isTTY: true, rows: 40, columns: 120 })
+
+		try {
+			const ws = makeWorkspace('/ws', { dashboard: remote() })
+			void devAll(ws)
+			await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+			emitReady(children[0]!, 5174)
+			// The panel paints at the top and confines scrolling below itself.
+			await vi.waitFor(() =>
+				expect(write).toHaveBeenCalledWith(expect.stringContaining('\x1b[2J\x1b[H'))
+			)
+			const painted = write.mock.calls.map(call => String(call[0])).join('')
+			expect(painted).toContain('dev servers ready')
+			// The scroll region's bottom edge is the terminal's row count.
+			expect(painted).toContain(';40r')
+
+			// A resize repaints without clearing, so streamed history survives.
+			write.mockClear()
+			stdout.rows = 30
+			process.stdout.emit('resize')
+			const repaint = write.mock.calls.map(call => String(call[0])).join('')
+			expect(repaint).not.toContain('\x1b[2J')
+			expect(repaint).toContain(';30r')
+
+			// Shrinking below the panel releases the region instead of leaving
+			// stale bounds behind.
+			write.mockClear()
+			stdout.rows = 4
+			process.stdout.emit('resize')
+			expect(write).toHaveBeenCalledWith(expect.stringContaining('\x1b[r'))
+
+			process.emit('SIGINT')
+		} finally {
+			Object.assign(stdout, original)
+		}
+	})
+
+	it('dumps the buffered output of an app that crashes during startup', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		const running = devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		children[0]!.stdout.emit('data', Buffer.from('EADDRINUSE port taken\n'))
+		children[0]!.emit('exit', 1)
+
+		await expect(running).rejects.toThrow('stopped unexpectedly')
+		expect(write).toHaveBeenCalledWith(expect.stringContaining('EADDRINUSE'))
+	})
+
+	it('dumps every sibling buffer on a crash, the crashing app last', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+		const running = devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+		children[0]!.stdout.emit('data', Buffer.from('dashboard bound port 5174\n'))
+		children[1]!.stdout.emit('data', Buffer.from('shell exploding\n'))
+		children[1]!.emit('exit', 1)
+
+		await expect(running).rejects.toThrow('stopped unexpectedly')
+		const out = write.mock.calls.map(call => String(call[0])).join('')
+		expect(out).toContain('dashboard bound port 5174')
+		expect(out.indexOf('dashboard bound port 5174')).toBeLessThan(
+			out.indexOf('shell exploding')
+		)
+	})
+
+	it('detects the ready banner even when a chunk splits it mid-line', async () => {
+		vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		children[0]!.stdout.emit('data', Buffer.from('  VITE v8.1.3  re'))
+		children[0]!.stdout.emit(
+			'data',
+			Buffer.from('ady in 500 ms\n  ➜  Local:   http://localhost:5174/\n')
+		)
+
+		await vi.waitFor(() =>
+			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('dev servers ready'))
+		)
+	})
+
+	it('caps the startup buffer and notes the truncation when flushing', async () => {
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		const running = devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		const chatty = Array.from({ length: 450 }, (_, i) => `line ${i}`).join('\n')
+		children[0]!.stdout.emit('data', Buffer.from(`${chatty}\n`))
+		children[0]!.emit('exit', 1)
+
+		await expect(running).rejects.toThrow('stopped unexpectedly')
+		const out = write.mock.calls.map(call => String(call[0])).join('')
+		expect(out).toContain('truncated')
+		expect(out).not.toContain('line 0\n')
+		expect(out).toContain('line 449')
 	})
 
 	it('warns when a remote does not come up in time', async () => {

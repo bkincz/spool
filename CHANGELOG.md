@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.1.1
+
+Scaffolded workspaces now carry `@bkincz/spool` as a root dev dependency,
+pinned to the version that created them. A teammate can clone, install, and
+run `pnpm dev` without a global install, and the whole team runs the same
+spool. `spool upgrade` adds it to older workspaces.
+
+`spool dev` starts clean. Each app's startup noise is buffered, and once
+every server is up spool prints one panel: app, role and framework, url,
+vite version, and ready time, hosts first. In a real terminal the panel
+stays anchored at the top while logs scroll beneath it, resizes repaint
+without losing history, and ctrl+c restores the terminal. Logs stream with
+the usual per-app prefixes either way. A crash during startup dumps every
+app's buffered output so the reason is never hidden, a slow start (15s)
+falls back to streaming everything, and pipes, CI, and narrow windows get
+the panel inline instead.
+
+Extras picked together at create time now compose. With the state addon,
+every remote renders a working counter that increments the shared machine
+and the host displays the live count, so the cross-app state flow is visible
+the moment `spool dev` opens. The counter's button comes from the ladle ui
+package when both addons are picked, and the Playwright spec gains a test
+that clicks a remote's button and asserts the shell's count updates over
+federation. `spool addon` stays plain: applied retroactively, extras never
+rewrite app components you may have edited.
+
 ## 2.1.0
 
 Added `spool addon`: adds extras to an existing workspace. Pass names
