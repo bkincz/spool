@@ -18,7 +18,9 @@ vi.mock('@clack/prompts', () => ({
 	cancel: vi.fn(),
 	isCancel: vi.fn(() => false),
 	text: vi.fn(),
-	select: vi.fn().mockResolvedValue('pnpm'),
+	select: vi.fn((opts: { message: string }) =>
+		Promise.resolve(opts.message.startsWith('Framework') ? 'react' : 'pnpm')
+	),
 	spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
 }))
 
@@ -61,6 +63,62 @@ describe('create (interactive)', () => {
 		)
 		expect(manifest.name).toBe('myapp')
 		expect(Object.keys(manifest.apps).sort()).toEqual(['host1', 'one', 'two'])
+	})
+
+	it('asks a framework per app and records each choice', async () => {
+		vi.mocked(p.text)
+			.mockResolvedValueOnce('myapp')
+			.mockResolvedValueOnce('host1')
+			.mockResolvedValueOnce('one, two')
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('vue') // host1
+			.mockResolvedValueOnce('svelte') // one
+			.mockResolvedValueOnce('react') // two
+			.mockResolvedValueOnce('pnpm') // package manager
+
+		await create(undefined, { here: true })
+
+		const manifest = JSON.parse(
+			(await import('node:fs')).readFileSync(join(dir, 'spool.json'), 'utf8')
+		)
+		expect(manifest.apps.host1.framework).toBe('vue')
+		expect(manifest.apps.one.framework).toBe('svelte')
+		expect(manifest.apps.two.framework).toBe('react')
+	})
+
+	it('asks the host framework even when --host is a flag, if the session prompts', async () => {
+		vi.mocked(p.text).mockResolvedValueOnce('myapp').mockResolvedValueOnce('one')
+		vi.mocked(p.select)
+			.mockResolvedValueOnce('svelte') // shell (name given via --host)
+			.mockResolvedValueOnce('vue') // one
+			.mockResolvedValueOnce('pnpm') // package manager
+
+		await create(undefined, { here: true, host: 'shell' })
+
+		const manifest = JSON.parse(
+			(await import('node:fs')).readFileSync(join(dir, 'spool.json'), 'utf8')
+		)
+		expect(manifest.apps.shell.framework).toBe('svelte')
+		expect(manifest.apps.one.framework).toBe('vue')
+	})
+
+	it('skips the framework prompts when --framework is given', async () => {
+		vi.mocked(p.text)
+			.mockResolvedValueOnce('myapp')
+			.mockResolvedValueOnce('host1')
+			.mockResolvedValueOnce('one')
+
+		await create(undefined, { here: true, framework: 'svelte' })
+
+		const frameworkPrompts = vi
+			.mocked(p.select)
+			.mock.calls.filter(([opts]) => (opts as { message: string }).message.startsWith('Framework'))
+		expect(frameworkPrompts).toHaveLength(0)
+		const manifest = JSON.parse(
+			(await import('node:fs')).readFileSync(join(dir, 'spool.json'), 'utf8')
+		)
+		expect(manifest.apps.host1.framework).toBe('svelte')
+		expect(manifest.apps.one.framework).toBe('svelte')
 	})
 
 	it('aborts without writing anything when a prompt is cancelled', async () => {

@@ -3,9 +3,11 @@
  *   SVELTE TEMPLATES
  ***************************************************************************************************/
 import { camelCase } from '../../util/names.js'
+import { mountContractTyping, reactBridgeFiles } from './bridges.js'
 import type { FrameworkTemplate, MountHint, RemoteRef } from './index.js'
 
 export const svelteTemplate: FrameworkTemplate = {
+	remoteContract: 'mount',
 	exposeEntry: './src/mount.ts',
 	htmlEntry: '/src/main.ts',
 	// The module declaration lets plain tsc check .ts files that import
@@ -23,27 +25,22 @@ declare module "*.svelte" {
 		importLine: 'import { svelte } from "@sveltejs/vite-plugin-svelte";',
 		call: 'svelte()',
 	},
-	remoteTyping: name =>
-		`declare module "${name}/App" {\n  const mount: (target: HTMLElement) => () => void;\n  export default mount;\n}\n`,
+	remoteTyping: mountContractTyping,
 	sourceFiles: (appName, isHost, refs) => {
 		const files: Record<string, string> = {
 			'src/main.ts': svelteMain(),
 			'src/App.svelte': isHost ? svelteHostApp(appName, refs) : svelteRemoteApp(appName),
 		}
 		if (!isHost) files['src/mount.ts'] = svelteMount()
-		return { ...files, ...(isHost ? bridgeFiles(refs) : {}) }
+		return { ...files, ...(isHost ? reactBridgeFiles(refs) : {}) }
 	},
-	bridgeFiles,
+	bridgeFiles: reactBridgeFiles,
 	mountHint,
 }
 
 /*
  *   FILE BUILDERS
  ***************************************************************************************************/
-function bridgeFiles(refs: RemoteRef[]): Record<string, string> {
-	return refs.some(r => r.framework === 'react') ? { 'src/react-bridge.ts': reactBridge() } : {}
-}
-
 function svelteMain(): string {
 	return `import { mount } from "svelte";
 import App from "./App.svelte";
@@ -74,28 +71,16 @@ function svelteRemoteApp(appName: string): string {
 `
 }
 
-function reactBridge(): string {
-	return `import { createElement, type ComponentType } from "react";
-import { createRoot } from "react-dom/client";
-
-export function mountReact(Component: ComponentType, target: HTMLElement): () => void {
-  const root = createRoot(target);
-  root.render(createElement(Component));
-  return () => root.unmount();
-}
-`
-}
-
 function svelteHostApp(appName: string, refs: RemoteRef[]): string {
-	const hasReact = refs.some(r => r.framework === 'react')
-	const bridgeImport = hasReact ? `\n  import { mountReact } from "./react-bridge";` : ''
+	const hasBridge = refs.some(r => r.contract === 'component')
+	const bridgeImport = hasBridge ? `\n  import { mountReact } from "./react-bridge";` : ''
 
 	const elements = refs.map(r => `  let ${camelCase(r.name)}El: HTMLElement;`).join('\n')
 	const mounts = refs
 		.map(r => {
 			const el = `${camelCase(r.name)}El`
 			const mount =
-				r.framework === 'react' ? `mountReact(m.default, ${el})` : `m.default(${el})`
+				r.contract === 'component' ? `mountReact(m.default, ${el})` : `m.default(${el})`
 			return `      void import("${r.name}/App").then(m => {
         if (!cancelled) cleanups.push(${mount});
       });`
@@ -126,10 +111,10 @@ ${mounts}
   // No remotes wired yet. Add one with \`spool add <name> --host ${appName}\`.
 `
 
-	return `<script lang="ts">
-  import { onMount } from "svelte";${bridgeImport}
+	const imports = refs.length ? `  import { onMount } from "svelte";${bridgeImport}\n\n` : ''
 
-${elements}
+	return `<script lang="ts">
+${imports}${elements}
 ${onMount}</script>
 
 <main style="font-family: system-ui; padding: 24px;">
@@ -144,7 +129,7 @@ ${sections || '  <p>No remotes mounted yet.</p>'}
  ***************************************************************************************************/
 function mountHint(ref: RemoteRef, hostName: string): MountHint {
 	const el = `${camelCase(ref.name)}El`
-	const mount = ref.framework === 'react' ? `mountReact(m.default, ${el})` : `m.default(${el})`
+	const mount = ref.contract === 'component' ? `mountReact(m.default, ${el})` : `m.default(${el})`
 	const lines = [
 		`let ${el}: HTMLElement;`,
 		`onMount(() => {`,
@@ -160,7 +145,7 @@ function mountHint(ref: RemoteRef, hostName: string): MountHint {
 		`});`,
 		`// and in the markup: <div bind:this={${el}}></div>`,
 	]
-	if (ref.framework === 'react') {
+	if (ref.contract === 'component') {
 		lines.unshift(`import { mountReact } from "./react-bridge";`)
 	}
 	return { intro: `To mount it, edit apps/${hostName}/src/App.svelte:`, lines }

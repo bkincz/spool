@@ -6,6 +6,7 @@ import { pascalCase } from '../../util/names.js'
 import type { FrameworkTemplate, MountHint, RemoteRef } from './index.js'
 
 export const reactTemplate: FrameworkTemplate = {
+	remoteContract: 'component',
 	exposeEntry: './src/App.tsx',
 	htmlEntry: '/src/main.tsx',
 	viteEnv: `/// <reference types="vite/client" />\n`,
@@ -56,8 +57,8 @@ function MountRemote({ load }: { load: () => Promise<{ default: (el: HTMLElement
 }`
 
 function hostApp(appName: string, refs: RemoteRef[]): string {
-	const reactRefs = refs.filter(r => r.framework === 'react')
-	const mountRefs = refs.filter(r => r.framework !== 'react')
+	const reactRefs = refs.filter(r => r.contract === 'component')
+	const mountRefs = refs.filter(r => r.contract === 'mount')
 
 	const imports = [
 		...reactRefs.map(r => `const ${pascalCase(r.name)} = lazy(() => import("${r.name}/App"));`),
@@ -66,7 +67,7 @@ function hostApp(appName: string, refs: RemoteRef[]): string {
 
 	const sections = refs
 		.map(r =>
-			r.framework === 'react'
+			r.contract === 'component'
 				? `        <section>
           <h2>${r.name}</h2>
           <Suspense fallback={<p>Loading ${r.name}...</p>}>
@@ -115,7 +116,7 @@ function remoteApp(appName: string): string {
 function mountHint(ref: RemoteRef, hostName: string): MountHint {
 	const comp = pascalCase(ref.name)
 	const intro = `To mount it, edit apps/${hostName}/src/App.tsx:`
-	if (ref.framework === 'react') {
+	if (ref.contract === 'component') {
 		return {
 			intro,
 			lines: [

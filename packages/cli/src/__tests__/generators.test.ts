@@ -358,6 +358,119 @@ describe('appFiles (svelte host with a react remote)', () => {
 })
 
 /*
+ *   APP FILES - VUE
+ ***************************************************************************************************/
+describe('appFiles (vue remote)', () => {
+	const m = makeManifest({
+		shell: host({ remotes: ['widget'] }),
+		widget: remote({
+			framework: 'vue',
+			path: 'apps/widget',
+			exposes: { './App': './src/mount.ts' },
+		}),
+	})
+	const files = appFiles(m, 'widget', m.apps.widget!)
+
+	it('scaffolds vue sources and the mount contract', () => {
+		expect(files['src/App.vue']).toContain('Vue remote')
+		expect(files['src/mount.ts']).toContain('export default function mountApp')
+		expect(files['src/main.ts']).toContain('createApp(App)')
+		expect(files['src/App.tsx']).toBeUndefined()
+		expect(files['src/main.tsx']).toBeUndefined()
+	})
+
+	it('uses the vue vite plugin and entry point', () => {
+		expect(files['vite.config.ts']).toContain('@vitejs/plugin-vue')
+		expect(files['vite.config.ts']).not.toContain('@vitejs/plugin-react')
+		expect(files['index.html']).toContain('/src/main.ts"')
+	})
+
+	it('declares vue deps and no react deps', () => {
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.dependencies.vue).toBeDefined()
+		expect(pkg.dependencies.react).toBeUndefined()
+		expect(pkg.devDependencies['@vitejs/plugin-vue']).toBeDefined()
+	})
+
+	it('lets plain tsc resolve .vue imports', () => {
+		expect(files['src/vite-env.d.ts']).toContain('declare module "*.vue"')
+	})
+})
+
+describe('appFiles (react host with a vue remote)', () => {
+	const m = makeManifest({
+		shell: host({ remotes: ['widget'] }),
+		widget: remote({
+			framework: 'vue',
+			path: 'apps/widget',
+			exposes: { './App': './src/mount.ts' },
+		}),
+	})
+	const files = appFiles(m, 'shell', m.apps.shell!)
+
+	it('mounts the vue remote through the mount contract wrapper', () => {
+		expect(files['src/App.tsx']).toContain('function MountRemote')
+		expect(files['src/App.tsx']).toContain('<MountRemote load={loadWidget} />')
+	})
+
+	it('needs no vue deps, since mount-contract remotes are self-contained', () => {
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.dependencies.vue).toBeUndefined()
+		expect(pkg.devDependencies['@vitejs/plugin-vue']).toBeUndefined()
+	})
+})
+
+describe('appFiles (vue host with mixed remotes)', () => {
+	const m = makeManifest({
+		shell: host({ framework: 'vue', remotes: ['dashboard', 'widget'] }),
+		dashboard: remote(),
+		widget: remote({
+			framework: 'svelte',
+			path: 'apps/widget',
+			port: 5175,
+			exposes: { './App': './src/mount.ts' },
+		}),
+	})
+	const files = appFiles(m, 'shell', m.apps.shell!)
+
+	it('bridges react remotes and mounts contract remotes directly', () => {
+		expect(files['src/react-bridge.ts']).toContain('createRoot')
+		expect(files['src/App.vue']).toContain('mountReact(m.default')
+		expect(files['src/App.vue']).toContain('import("widget/App")')
+	})
+
+	it('ships the react bridge runtime but neither vite plugin nor svelte', () => {
+		const pkg = JSON.parse(files['package.json']!)
+		expect(pkg.dependencies.vue).toBeDefined()
+		expect(pkg.dependencies.react).toBeDefined()
+		expect(pkg.devDependencies['@types/react']).toBeDefined()
+		expect(pkg.devDependencies['@vitejs/plugin-react']).toBeUndefined()
+		expect(pkg.dependencies.svelte).toBeUndefined()
+	})
+
+	it('guards mounts against unmounting before a remote import resolves', () => {
+		expect(files['src/App.vue']).toContain('cancelled')
+	})
+
+	it('types each remote by its contract', () => {
+		const typings = files['src/remotes.d.ts']!
+		expect(typings).toContain('const Component: React.ComponentType')
+		expect(typings).toContain('const mount: (target: HTMLElement) => () => void')
+	})
+})
+
+describe('appFiles (mount-contract hosts with no remotes)', () => {
+	it('imports nothing, so fresh scaffolds pass unused-import lint', () => {
+		const svelteM = makeManifest({ shell: host({ framework: 'svelte' }) })
+		expect(appFiles(svelteM, 'shell', svelteM.apps.shell!)['src/App.svelte']).not.toContain(
+			'import'
+		)
+		const vueM = makeManifest({ shell: host({ framework: 'vue' }) })
+		expect(appFiles(vueM, 'shell', vueM.apps.shell!)['src/App.vue']).not.toContain('import')
+	})
+})
+
+/*
  *   TSCONFIG - PER-FRAMEWORK COMPILER OPTIONS
  ***************************************************************************************************/
 describe('app tsconfig', () => {

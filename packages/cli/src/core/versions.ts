@@ -1,7 +1,7 @@
 /*
  *   TOOLCHAIN VERSIONS
  ***************************************************************************************************/
-import type { AppConfig, Framework, Manifest } from './config.js'
+import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from './config.js'
 
 /** Written to scaffolded package.json so corepack and CI resolve the same pnpm. */
 export const PNPM_VERSION = '11.6.0'
@@ -18,6 +18,8 @@ export const TOOLCHAIN = {
 	'@types/react-dom': '^19.2.0',
 	svelte: '^5.56.0',
 	'@sveltejs/vite-plugin-svelte': '^7.1.0',
+	vue: '^3.5.0',
+	'@vitejs/plugin-vue': '^6.0.0',
 	'@types/node': '^26.0.0',
 	'@module-federation/vite': '^1.16.0',
 	'@vitejs/plugin-react': '^6.0.0',
@@ -52,6 +54,12 @@ export const FRAMEWORK_DEPS: Record<Framework, FrameworkDeps> = {
 		bridgeDependencies: [],
 		bridgeDevDependencies: [],
 	},
+	vue: {
+		dependencies: ['vue'],
+		devDependencies: ['@vitejs/plugin-vue'],
+		bridgeDependencies: [],
+		bridgeDevDependencies: [],
+	},
 }
 
 export const COMMON_DEV_DEPS: ToolchainDep[] = [
@@ -82,7 +90,7 @@ export function appDependencies(
 	if (app.type === 'host') {
 		const foreign = new Set<Framework>(
 			app.remotes
-				.map(name => m.apps[name]?.framework ?? 'react')
+				.map(name => m.apps[name]?.framework ?? DEFAULT_FRAMEWORK)
 				.filter(framework => framework !== app.framework)
 		)
 		for (const framework of foreign) {

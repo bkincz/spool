@@ -1,31 +1,30 @@
 /*
  *   FRAMEWORK TEMPLATES
  ***************************************************************************************************/
-import type { AppConfig, Framework, Manifest } from '../config.js'
+import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from '../config.js'
 import { reactTemplate } from './react.js'
 import { svelteTemplate } from './svelte.js'
+import { vueTemplate } from './vue.js'
 
 /*
  *   TYPES
  ***************************************************************************************************/
-/** A remote a host consumes, with its framework, which sets its contract. */
+export type RemoteContract = 'component' | 'mount'
+
 export interface RemoteRef {
 	name: string
 	framework: Framework
+	contract: RemoteContract
 }
 
-/** The snippet `spool add` prints for wiring a new remote into a host. */
 export interface MountHint {
 	intro: string
 	lines: string[]
 }
 
-/**
- * Everything the generators need to know about one framework. Supporting a
- * new framework means filling in one of these and registering it in TEMPLATES;
- * nothing else dispatches on the framework name.
- */
 export interface FrameworkTemplate {
+	/** The contract this framework's remotes expose as "./App". */
+	remoteContract: RemoteContract
 	/** Source file a fresh remote exposes as "./App". */
 	exposeEntry: string
 	/** Script the generated index.html loads. */
@@ -49,14 +48,16 @@ export interface FrameworkTemplate {
 export const TEMPLATES: Record<Framework, FrameworkTemplate> = {
 	react: reactTemplate,
 	svelte: svelteTemplate,
+	vue: vueTemplate,
 }
 
 /*
  *   HELPERS
  ***************************************************************************************************/
 export function remoteRefs(m: Manifest, host: AppConfig): RemoteRef[] {
-	return host.remotes.map(name => ({
-		name,
-		framework: m.apps[name]?.framework ?? 'react',
-	}))
+	return host.remotes.map(name => remoteRef(name, m.apps[name]?.framework ?? DEFAULT_FRAMEWORK))
+}
+
+export function remoteRef(name: string, framework: Framework): RemoteRef {
+	return { name, framework, contract: TEMPLATES[framework].remoteContract }
 }

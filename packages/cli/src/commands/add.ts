@@ -4,14 +4,16 @@
 import { join } from 'node:path'
 import { requireWorkspace, saveManifest } from '../core/workspace.js'
 import {
-	Framework,
+	DEFAULT_FRAMEWORK,
 	HELPER_FILE,
+	parseFramework,
 	validateName,
 	type AppConfig,
+	type Framework,
 	type Manifest,
 } from '../core/config.js'
 import { appFiles, defaultExposes, helperFile, hostWiringFiles } from '../core/generators.js'
-import { TEMPLATES, remoteRefs } from '../core/templates/index.js'
+import { TEMPLATES, remoteRef, remoteRefs } from '../core/templates/index.js'
 import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
@@ -44,16 +46,12 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 	if (opts.type && opts.type !== 'host' && opts.type !== 'remote') {
 		fail(`Unknown app type "${opts.type}". Use "host" or "remote".`)
 	}
-	const parsedFramework = Framework.safeParse(opts.framework ?? 'react')
-	if (!parsedFramework.success) {
-		fail(`Unknown framework "${opts.framework}". Use ${Framework.options.join(' or ')}.`)
-	}
+	const framework = parseFramework(opts.framework ?? DEFAULT_FRAMEWORK)
 
 	const type: AppConfig['type'] = opts.type === 'host' ? 'host' : 'remote'
 	if (type === 'host' && opts.host) {
 		log.warn(`--host only applies when adding a remote; ignoring --host ${opts.host}.`)
 	}
-	const framework = parsedFramework.data
 	const app: AppConfig = {
 		type,
 		framework,
@@ -90,7 +88,7 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 
 	// The host's own components are never touched, so print how to mount the
 	// new remote instead.
-	if (host) printMountHint({ name, framework }, host)
+	if (host) printMountHint(name, framework, host)
 
 	const pm = ws.manifest.packageManager
 	if (opts.install === false) {
@@ -156,8 +154,8 @@ function shareFrameworkRuntime(manifest: Manifest, framework: Framework): void {
 	log.step(`shared ${missing.join(', ')} so every ${framework} app gets one copy`)
 }
 
-function printMountHint(ref: { name: string; framework: Framework }, host: HostRef): void {
-	const hint = TEMPLATES[host.app.framework].mountHint(ref, host.name)
+function printMountHint(name: string, framework: Framework, host: HostRef): void {
+	const hint = TEMPLATES[host.app.framework].mountHint(remoteRef(name, framework), host.name)
 	log.step(hint.intro)
 	for (const line of hint.lines) log.plain(`    ${line}`)
 }

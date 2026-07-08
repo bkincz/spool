@@ -82,6 +82,53 @@ describe('create', () => {
 		expect(read('spool.json')).toContain('\t')
 	})
 
+	it('scaffolds per-app frameworks from name:framework specs', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell:svelte',
+			remotes: 'dashboard:vue, profile',
+			install: false,
+		})
+
+		const manifest = JSON.parse(read('spool.json'))
+		expect(manifest.apps.shell.framework).toBe('svelte')
+		expect(manifest.apps.dashboard.framework).toBe('vue')
+		// Remotes without an explicit framework follow the host.
+		expect(manifest.apps.profile.framework).toBe('svelte')
+		expect(manifest.shared).toEqual(expect.arrayContaining(['svelte', 'vue']))
+		expect(new Set(manifest.shared).size).toBe(manifest.shared.length)
+		expect(existsSync(join(dir, 'apps/shell/src/App.svelte'))).toBe(true)
+		expect(existsSync(join(dir, 'apps/dashboard/src/App.vue'))).toBe(true)
+	})
+
+	it('uses --framework as the default for apps without a spec', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard:react',
+			framework: 'vue',
+			install: false,
+		})
+
+		const manifest = JSON.parse(read('spool.json'))
+		expect(manifest.apps.shell.framework).toBe('vue')
+		expect(manifest.apps.dashboard.framework).toBe('react')
+	})
+
+	it('rejects an unknown framework in a spec', async () => {
+		await expect(
+			create(dir, {
+				name: 'acme',
+				pm: 'pnpm',
+				host: 'shell:angular',
+				remotes: '',
+				install: false,
+			})
+		).rejects.toThrow('Unknown framework')
+	})
+
 	it('scaffolds an npm workspace when --pm npm is chosen', async () => {
 		await create(dir, { name: 'acme', pm: 'npm', host: 'shell', remotes: '', install: false })
 

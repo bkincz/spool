@@ -38,8 +38,24 @@ export function validateName(value: string, label = 'name'): string | undefined 
 export const AppType = z.enum(['host', 'remote'])
 export type AppType = z.infer<typeof AppType>
 
-export const Framework = z.enum(['react', 'svelte'])
+export const Framework = z.enum(['react', 'svelte', 'vue'])
 export type Framework = z.infer<typeof Framework>
+
+/** Framework scaffolded when nothing picks one explicitly. */
+export const DEFAULT_FRAMEWORK: Framework = 'react'
+
+/** Returns an error message if `value` is not a known framework, else undefined. */
+export function validateFramework(value: string): string | undefined {
+	if (Framework.safeParse(value).success) return undefined
+	return `Unknown framework "${value}". Use ${Framework.options.join(' or ')}.`
+}
+
+/** Parses a framework name, aborting with a friendly message for unknown values. */
+export function parseFramework(value: string): Framework {
+	const error = validateFramework(value)
+	if (error) throw new CliError(error)
+	return Framework.parse(value)
+}
 
 // Strict schemas: spool.json is hand-edited, so typos must fail loudly
 // instead of being silently dropped.
@@ -48,7 +64,7 @@ export const AppSchema = z
 		/** "host" mounts remotes; "remote" exposes modules. */
 		type: AppType,
 		/** UI framework the app is scaffolded and regenerated for. */
-		framework: Framework.default('react'),
+		framework: Framework.default(DEFAULT_FRAMEWORK),
 		/** Path to the app, relative to workspace root. */
 		path: z.string(),
 		/** Dev server port. */
