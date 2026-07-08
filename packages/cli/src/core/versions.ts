@@ -2,8 +2,8 @@
  *   TOOLCHAIN VERSIONS
  ***************************************************************************************************/
 import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from './config.js'
+import { packageName } from '../util/names.js'
 
-/** Written to scaffolded package.json so corepack and CI resolve the same pnpm. */
 export const PNPM_VERSION = '11.6.0'
 
 /**
@@ -69,12 +69,10 @@ export const COMMON_DEV_DEPS: ToolchainDep[] = [
 	'vite',
 ]
 
-/**
- * Dependency ranges an app's package.json should carry: its own framework's
- * toolchain, bridge deps for foreign-framework remotes a host mounts, and
- * the common vite toolchain. `create`, `add` and `upgrade` all derive their
- * expectations from here.
- */
+export const SHARED_EXTRAS: Record<string, string> = {
+	'@bkincz/clutch': '^3.2.0',
+}
+
 export function appDependencies(
 	m: Manifest,
 	app: AppConfig
@@ -97,6 +95,10 @@ export function appDependencies(
 			put(FRAMEWORK_DEPS[framework].bridgeDependencies, dependencies)
 			put(FRAMEWORK_DEPS[framework].bridgeDevDependencies, devDependencies)
 		}
+	}
+	const sharedPackages = new Set(m.shared.map(packageName))
+	for (const [dep, range] of Object.entries(SHARED_EXTRAS)) {
+		if (sharedPackages.has(dep)) dependencies[dep] = range
 	}
 	put(COMMON_DEV_DEPS, devDependencies)
 	return { dependencies, devDependencies }

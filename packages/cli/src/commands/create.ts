@@ -19,6 +19,7 @@ import {
 	type Manifest,
 } from '../core/config.js'
 import { workspaceFiles, appFiles, defaultExposes } from '../core/generators.js'
+import { ADDONS, ADDON_NAMES, type AddonName } from '../core/addons.js'
 import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
@@ -34,6 +35,7 @@ export interface CreateOptions {
 	remotes?: string
 	pm?: string
 	framework?: string
+	addons?: string
 	install?: boolean
 	here?: boolean
 }
@@ -49,6 +51,7 @@ interface CreateInputs {
 	host: AppSpec
 	remotes: AppSpec[]
 	packageManager: Manifest['packageManager']
+	interactive: boolean
 }
 
 /*
@@ -73,7 +76,13 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 	}
 
 	const manifest = buildManifest(inputs)
-	await scaffold(targetDir, manifest)
+	const addons = await resolveAddons(opts, inputs.interactive, manifest)
+	if (addons === null) {
+		p.cancel('Cancelled.')
+		return
+	}
+	for (const addon of addons) ADDONS[addon].apply?.(manifest)
+	await scaffold(targetDir, manifest, addons)
 
 	log.success(`scaffolded ${pc.bold(inputs.name)} in ${pc.dim(targetDir)}`)
 	log.step(
@@ -83,6 +92,9 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 		log.step(
 			`remote: ${remote.name} (${remote.framework}) on port ${appPort(manifest, remote.name)}`
 		)
+	}
+	for (const addon of addons) {
+		for (const note of ADDONS[addon].notes(manifest)) log.step(note)
 	}
 
 	if (opts.install ?? true) await installDependencies(targetDir, manifest.packageManager)
@@ -160,7 +172,51 @@ async function resolveInputs(
 		packageManager = answer
 	}
 
-	return { name, host, remotes, packageManager }
+	return { name, host, remotes, packageManager, interactive }
+}
+
+/**
+ * Optional extras from --addons ("ladle, playwright" or "none") or, in
+ * interactive runs, a multiselect. Unavailable addons are hidden from the
+ * prompt but fail loudly when asked for by flag.
+ */
+async function resolveAddons(
+	opts: CreateOptions,
+	interactive: boolean,
+	manifest: Manifest
+): Promise<AddonName[] | null> {
+	if (opts.addons !== undefined) {
+		const names: AddonName[] = []
+		for (const entry of splitList(opts.addons)) {
+			if (entry === 'none') continue
+			if (!isAddonName(entry)) {
+				fail(`Unknown addon "${entry}". Use ${ADDON_NAMES.join(' or ')}, or "none".`)
+			}
+			const reason = ADDONS[entry].unavailable(manifest)
+			if (reason) fail(reason)
+			names.push(entry)
+		}
+		return [...new Set(names)]
+	}
+	if (!interactive) return []
+
+	const options = ADDON_NAMES.filter(name => !ADDONS[name].unavailable(manifest)).map(name => ({
+		value: name,
+		label: ADDONS[name].label,
+		hint: ADDONS[name].hint,
+	}))
+	if (!options.length) return []
+
+	const answer = await p.multiselect({
+		message: 'Extras to include? (press enter to skip)',
+		options,
+		required: false,
+	})
+	return p.isCancel(answer) ? null : (answer as AddonName[])
+}
+
+function isAddonName(value: string): value is AddonName {
+	return (ADDON_NAMES as string[]).includes(value)
 }
 
 /** Host name and framework, from --host ("name" or "name:framework") or prompts. */
@@ -241,13 +297,17 @@ async function resolveFramework(
 	return p.isCancel(answer) ? null : answer
 }
 
-async function scaffold(targetDir: string, manifest: Manifest): Promise<void> {
-	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest)))
-	await Promise.all(
-		Object.entries(manifest.apps).map(async ([name, app]) =>
+async function scaffold(targetDir: string, manifest: Manifest, addons: AddonName[]): Promise<void> {
+	const allowBuilds = addons.flatMap(addon => ADDONS[addon].allowBuilds)
+	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest, allowBuilds)))
+	await Promise.all([
+		...Object.entries(manifest.apps).map(async ([name, app]) =>
 			writeFiles(join(targetDir, app.path), await formatFiles(appFiles(manifest, name, app)))
-		)
-	)
+		),
+		...addons.map(async addon =>
+			writeFiles(targetDir, await formatFiles(ADDONS[addon].files(manifest)))
+		),
+	])
 }
 
 async function installDependencies(

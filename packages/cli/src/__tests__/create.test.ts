@@ -129,6 +129,107 @@ describe('create', () => {
 		).rejects.toThrow('Unknown framework')
 	})
 
+	it('scaffolds the requested addons', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard, profile',
+			addons: 'ladle, playwright',
+			install: false,
+		})
+
+		expect(
+			JSON.parse(read('packages/ui/package.json')).devDependencies['@ladle/react']
+		).toBeDefined()
+		expect(existsSync(join(dir, 'packages/ui/src/Button.stories.tsx'))).toBe(true)
+
+		const spec = read('packages/e2e/tests/shell.spec.ts')
+		expect(spec).toContain('shell (host)')
+		expect(spec).toContain("name: 'dashboard'")
+		expect(spec).toContain("name: 'profile'")
+		expect(spec).toContain('toHaveCount(2)')
+		expect(read('packages/e2e/playwright.config.ts')).toContain('http://localhost:5173')
+		expect(read('packages/e2e/playwright.config.ts')).toContain('pnpm run dev')
+
+		expect(read('pnpm-workspace.yaml')).toContain("'@swc/core': true")
+		expect(read('pnpm-workspace.yaml')).toContain("- '@swc/core'")
+	})
+
+	it('wires the shared-state addon through spool.json and every app', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard, widget:svelte',
+			addons: 'state',
+			install: false,
+		})
+
+		const manifest = JSON.parse(read('spool.json'))
+		expect(manifest.shared).toContain('@bkincz/clutch')
+		expect(manifest.shared).toContain('@bkincz/clutch/react')
+
+		for (const app of ['shell', 'dashboard', 'widget']) {
+			const pkg = JSON.parse(read(`apps/${app}/package.json`))
+			expect(pkg.dependencies['@bkincz/clutch']).toBeDefined()
+			expect(read(`apps/${app}/src/state/counter.ts`)).toContain("'acme:counter'")
+		}
+	})
+
+	it('shares only the clutch core when no app is react', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell:vue',
+			remotes: 'widget:svelte',
+			addons: 'state',
+			install: false,
+		})
+
+		const manifest = JSON.parse(read('spool.json'))
+		expect(manifest.shared).toContain('@bkincz/clutch')
+		expect(manifest.shared).not.toContain('@bkincz/clutch/react')
+	})
+
+	it('rejects an unknown addon', async () => {
+		await expect(
+			create(dir, {
+				name: 'acme',
+				pm: 'pnpm',
+				host: 'shell',
+				remotes: '',
+				addons: 'storybook',
+				install: false,
+			})
+		).rejects.toThrow('Unknown addon')
+	})
+
+	it('rejects ladle in a workspace with no react app', async () => {
+		await expect(
+			create(dir, {
+				name: 'acme',
+				pm: 'pnpm',
+				host: 'shell:svelte',
+				remotes: '',
+				addons: 'ladle',
+				install: false,
+			})
+		).rejects.toThrow('react-based')
+	})
+
+	it('treats --addons none as no addons', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: '',
+			addons: 'none',
+			install: false,
+		})
+		expect(existsSync(join(dir, 'packages'))).toBe(false)
+	})
+
 	it('scaffolds an npm workspace when --pm npm is chosen', async () => {
 		await create(dir, { name: 'acme', pm: 'npm', host: 'shell', remotes: '', install: false })
 

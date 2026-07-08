@@ -143,7 +143,9 @@ function mountHint(ref: RemoteRef, hostName: string): MountHint {
 	const base = camelCase(ref.name)
 	const el = `${base}El`
 	const mount =
-		ref.contract === 'component' ? `mountReact(m.default, ${el}.value)` : `m.default(${el}.value)`
+		ref.contract === 'component'
+			? `mountReact(m.default, ${el}.value)`
+			: `m.default(${el}.value)`
 	const lines = [
 		`const ${el} = ref<HTMLElement | null>(null);`,
 		`let ${base}Cancelled = false;`,

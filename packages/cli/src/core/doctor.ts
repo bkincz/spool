@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { Workspace } from './workspace.js'
 import { HELPER_FILE, type Manifest } from './config.js'
 import { FRAMEWORK_DEPS } from './versions.js'
+import { packageName } from '../util/names.js'
 
 /*
  *   TYPES
@@ -107,12 +108,6 @@ function checkSharedDeps(ws: Workspace): Diagnostic[] {
 
 /** dep -> version range -> apps using that range. */
 type SharedRanges = Map<string, Map<string, string[]>>
-
-/** "@scope/pkg/subpath" and "pkg/subpath" resolve to the installable package. */
-function packageName(specifier: string): string {
-	const parts = specifier.split('/')
-	return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!
-}
 
 function collectSharedRanges(ws: Workspace, issues: Diagnostic[]): SharedRanges {
 	const sharedPackages = [...new Set(ws.manifest.shared.map(packageName))]

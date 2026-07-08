@@ -38,6 +38,7 @@ program
 	.option('--remotes <list>', 'comma-separated remote app names, each optionally name:framework')
 	.option('--pm <manager>', 'package manager: pnpm | npm | yarn')
 	.option('--framework <framework>', 'default framework: react | svelte | vue')
+	.option('--addons <list>', 'comma-separated extras: ladle | playwright | state, or "none"')
 	.option('--here', 'scaffold into the current directory')
 	.option('--no-install', 'skip dependency install')
 	.action(create)
