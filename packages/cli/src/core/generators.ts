@@ -100,6 +100,14 @@ export const NODE_RANGE = '>=22.12.0'
 /** YAML keys starting with a reserved indicator (like @scope) need quoting. */
 export const yamlKey = (name: string): string => (name.startsWith('@') ? `"${name}"` : name)
 
+/** Root scripts every workspace gets; upgrade adds missing ones to old scaffolds. */
+export const WORKSPACE_SCRIPTS = {
+	dev: 'spool dev',
+	build: 'spool build',
+	preview: 'spool preview',
+	doctor: 'spool doctor',
+}
+
 function workspacePackageJson(m: Manifest): string {
 	const pkg: Record<string, unknown> = {
 		name: m.name,
@@ -107,11 +115,7 @@ function workspacePackageJson(m: Manifest): string {
 		private: true,
 		type: 'module',
 		engines: { node: NODE_RANGE },
-		scripts: {
-			dev: 'spool dev',
-			build: 'spool build',
-			doctor: 'spool doctor',
-		},
+		scripts: { ...WORKSPACE_SCRIPTS },
 	}
 	if (m.packageManager === 'pnpm') {
 		// pnpm/action-setup and corepack read the version from here.
@@ -131,7 +135,7 @@ function workspacePackageJson(m: Manifest): string {
 }
 
 function workspaceReadme(m: Manifest): string {
-	return `# ${m.name}\n\nMicro-frontend workspace scaffolded with [spool](https://github.com/bkincz/spool).\n\nAll federation wiring lives in \`spool.json\`; each app's \`vite.config.ts\` reads it\nthrough \`spool.vite.ts\` at startup, so editing the manifest is all you ever do.\n\n## Commands\n\n\`\`\`bash\n${m.packageManager} install    # install all apps\nspool dev           # run host + remotes together\nspool build         # coordinated production build\nspool deploy        # run each app's deploy command\nspool add <name>    # add a host or remote app\nspool remove <name> # remove an app and unwire it\nspool ci            # generate per-app deploy workflows\nspool upgrade       # sync generated files to the installed spool\nspool doctor        # check ports, wiring and shared deps\n\`\`\`\n\n## Deploying remotes\n\nA host resolves each remote in this order:\n\n1. \`SPOOL_REMOTE_<NAME>\` env var (ad-hoc override, e.g. point one remote at staging)\n2. the remote's \`url\` in \`spool.json\` (its deployed \`mf-manifest.json\`, used in production builds)\n3. \`http://localhost:<port>/mf-manifest.json\` (local dev)\n`
+	return `# ${m.name}\n\nMicro-frontend workspace scaffolded with [spool](https://github.com/bkincz/spool).\n\nAll federation wiring lives in \`spool.json\`; each app's \`vite.config.ts\` reads it\nthrough \`spool.vite.ts\` at startup, so editing the manifest is all you ever do.\n\n## Commands\n\n\`\`\`bash\n${m.packageManager} install    # install all apps\nspool dev           # run host + remotes together\nspool build         # coordinated production build\nspool preview       # serve the built apps locally\nspool deploy        # run each app's deploy command\nspool add <name>    # add a host or remote app\nspool remove <name> # remove an app and unwire it\nspool ci            # generate per-app deploy workflows\nspool upgrade       # sync generated files to the installed spool\nspool doctor        # check ports, wiring and shared deps\n\`\`\`\n\n## Deploying remotes\n\nA host resolves each remote in this order:\n\n1. \`SPOOL_REMOTE_<NAME>\` env var (ad-hoc override, e.g. point one remote at staging)\n2. the remote's \`urls\` entry for \`SPOOL_ENV\` / \`--env\` (production builds only)\n3. the remote's \`url\` in \`spool.json\` (its deployed \`mf-manifest.json\`, used in production builds)\n4. \`http://localhost:<port>/mf-manifest.json\` (local dev)\n`
 }
 
 /*
@@ -156,6 +160,7 @@ export interface SpoolAppEntry {
   path: string;
   port: number;
   url?: string;
+  urls?: Record<string, string>;
   remotes?: string[];
   exposes?: Record<string, string>;
 }
@@ -168,7 +173,7 @@ export interface SpoolManifest {
 
 export interface SpoolAppConfig {
   /** Vite server/preview settings for this app. */
-  server: { port: number; strictPort: boolean };
+  server: { port: number; strictPort: boolean; cors: boolean };
   /** Options for the federation() plugin from @module-federation/vite. */
   federation: {
     name: string;
@@ -192,13 +197,17 @@ function findManifest(from: string): string {
 }
 
 /**
- * Remote lookup order: SPOOL_REMOTE_<NAME> env var, the remote's "url" in
- * spool.json (production builds only, so dev keeps hitting local servers),
- * then the local dev server.
+ * Remote lookup order: SPOOL_REMOTE_<NAME> env var, the remote's url for the
+ * SPOOL_ENV environment, its default "url" (production builds only, so dev
+ * keeps hitting local servers), then the local dev server.
  */
 function remoteUrl(name: string, app: SpoolAppEntry, command: SpoolCommand): string {
   const envKey = "SPOOL_REMOTE_" + name.toUpperCase().replace(/-/g, "_");
-  const deployed = command === "build" ? app.url : undefined;
+  const environment = process.env.SPOOL_ENV;
+  const deployed =
+    command === "build"
+      ? (environment !== undefined ? app.urls?.[environment] : undefined) ?? app.url
+      : undefined;
   return process.env[envKey] ?? deployed ?? "http://localhost:" + app.port + "/mf-manifest.json";
 }
 
@@ -246,7 +255,8 @@ export function spoolApp(
   if (!app) throw new Error('spool.vite: no app named "' + name + '" in spool.json');
 
   const shared = declaredShared(from, manifest.shared ?? []);
-  const server = { port: app.port, strictPort: true };
+  // cors covers dev and vite preview, where hosts fetch remotes cross-origin.
+  const server = { port: app.port, strictPort: true, cors: true };
 
   if (app.type === "host") {
     const remotes: Record<string, string> = {};

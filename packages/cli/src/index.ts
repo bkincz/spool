@@ -8,6 +8,7 @@ import { addon } from './commands/addon.js'
 import { remove } from './commands/remove.js'
 import { dev } from './commands/dev.js'
 import { build } from './commands/build.js'
+import { preview } from './commands/preview.js'
 import { deploy } from './commands/deploy.js'
 import { ci } from './commands/ci.js'
 import { upgrade } from './commands/upgrade.js'
@@ -74,12 +75,20 @@ program
 	.command('build')
 	.description('Build every app for production (remotes before hosts)')
 	.option('--only <list>', 'comma-separated subset of apps')
+	.option('--env <name>', "select each remote's urls.<name> for this build")
 	.action(build)
+
+program
+	.command('preview')
+	.description('Serve the built apps locally (remotes before hosts)')
+	.option('--only <list>', 'comma-separated subset of apps')
+	.action(preview)
 
 program
 	.command('deploy')
 	.description("Run each app's deploy command (remotes before hosts)")
 	.option('--only <list>', 'comma-separated subset of apps')
+	.option('--env <name>', 'exposed to deploy commands as SPOOL_ENV')
 	.action(deploy)
 
 program
@@ -98,6 +107,7 @@ program
 	.command('doctor')
 	.description('Check ports, app folders, federation wiring and shared deps')
 	.option('--remote', 'also fetch each deployed remote url')
+	.option('--env <name>', "check each remote's urls.<name> instead of url")
 	.action(doctor)
 
 /*

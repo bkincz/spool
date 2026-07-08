@@ -44,6 +44,7 @@ const manifest = makeManifest({
 		path: 'apps/billing',
 		port: 5175,
 		url: 'https://cdn.example.com/mf-manifest.json',
+		urls: { staging: 'https://staging.example.com/mf-manifest.json' },
 	}),
 })
 
@@ -76,6 +77,7 @@ afterAll(() => {
 
 afterEach(() => {
 	delete process.env.SPOOL_REMOTE_DASHBOARD
+	delete process.env.SPOOL_ENV
 })
 
 /*
@@ -84,7 +86,7 @@ afterEach(() => {
 describe('generated spool.vite.ts', () => {
 	it('derives a host config with local dev URLs for its remotes', () => {
 		const app = helper.spoolApp('shell', dir)
-		expect(app.server).toEqual({ port: 5173, strictPort: true })
+		expect(app.server).toEqual({ port: 5173, strictPort: true, cors: true })
 		expect(app.federation.name).toBe('shell')
 		expect(app.federation.remotes?.dashboard).toBe('http://localhost:5174/mf-manifest.json')
 		expect(app.federation.shared).toEqual(['react', 'react-dom'])
@@ -101,6 +103,24 @@ describe('generated spool.vite.ts', () => {
 		expect(app.federation.remotes?.billing).toBe('http://localhost:5175/mf-manifest.json')
 	})
 
+	it('selects the urls entry for SPOOL_ENV in production builds', () => {
+		process.env.SPOOL_ENV = 'staging'
+		const app = helper.spoolApp('shell', dir, 'build')
+		expect(app.federation.remotes?.billing).toBe('https://staging.example.com/mf-manifest.json')
+	})
+
+	it('falls back to url when SPOOL_ENV has no urls entry', () => {
+		process.env.SPOOL_ENV = 'production'
+		const app = helper.spoolApp('shell', dir, 'build')
+		expect(app.federation.remotes?.billing).toBe('https://cdn.example.com/mf-manifest.json')
+	})
+
+	it('ignores urls in dev even when SPOOL_ENV is set', () => {
+		process.env.SPOOL_ENV = 'staging'
+		const app = helper.spoolApp('shell', dir, 'serve')
+		expect(app.federation.remotes?.billing).toBe('http://localhost:5175/mf-manifest.json')
+	})
+
 	it('lets a SPOOL_REMOTE env var override everything, dev included', () => {
 		process.env.SPOOL_REMOTE_DASHBOARD = 'https://staging.example.com/mf-manifest.json'
 		const app = helper.spoolApp('shell', dir)
@@ -111,7 +131,7 @@ describe('generated spool.vite.ts', () => {
 
 	it('derives a remote config with its exposes and entry filename', () => {
 		const app = helper.spoolApp('dashboard', dir)
-		expect(app.server).toEqual({ port: 5174, strictPort: true })
+		expect(app.server).toEqual({ port: 5174, strictPort: true, cors: true })
 		expect(app.federation.filename).toBe('remoteEntry.js')
 		expect(app.federation.exposes).toEqual({ './App': './src/App.tsx' })
 		expect(app.federation.remotes).toBeUndefined()

@@ -153,6 +153,35 @@ describe('upgrade', () => {
 		expect(success).toHaveBeenCalledWith('already up to date')
 	})
 
+	it('aborts outside a workspace', async () => {
+		const outside = freshDir('spool-outside-')
+		process.chdir(outside)
+
+		await expect(upgrade({})).rejects.toThrow('No spool.json')
+		process.chdir(dir)
+		removeDir(outside)
+	})
+
+	it('removes the unsupported rspack bundler from spool.json', async () => {
+		const manifest = readJson('spool.json')
+		manifest.bundler = 'rspack'
+		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
+
+		await upgrade({})
+		expect(readJson('spool.json').bundler).toBeUndefined()
+	})
+
+	it('adds missing root scripts without touching edited ones', async () => {
+		const pkg = readJson('package.json')
+		delete pkg.scripts.preview
+		pkg.scripts.build = 'my custom build'
+		writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg))
+
+		await upgrade({})
+		expect(readJson('package.json').scripts.preview).toBe('spool preview')
+		expect(readJson('package.json').scripts.build).toBe('my custom build')
+	})
+
 	it('skips apps whose folders are missing', async () => {
 		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, 'apps/dashboard'), { recursive: true })

@@ -11,13 +11,16 @@ import { log } from '../util/logger.js'
  ***************************************************************************************************/
 export interface DoctorOptions {
 	remote?: boolean
+	env?: string
 }
 
 export async function doctor(opts: DoctorOptions = {}): Promise<void> {
 	const ws = await requireWorkspace()
 	const issues = diagnose(ws)
 	if (opts.remote) {
-		issues.push(...(await diagnoseRemotes(ws)))
+		// Builds read SPOOL_ENV when --env is absent, so doctor probes the same urls.
+		const env = (opts.env ?? process.env.SPOOL_ENV) || undefined
+		issues.push(...(await diagnoseRemotes(ws, env)))
 	}
 
 	if (!issues.length) {

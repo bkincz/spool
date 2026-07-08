@@ -22,6 +22,11 @@ export function packageName(specifier: string): string {
 	return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0]!
 }
 
+/** Env var that overrides where hosts load a remote from, e.g. SPOOL_REMOTE_MY_APP. */
+export function remoteEnvVar(name: string): string {
+	return `SPOOL_REMOTE_${name.toUpperCase().replace(/-/g, '_')}`
+}
+
 /** Splits a comma-separated list, dropping empty entries. */
 export function splitList(value: string): string[] {
 	return value

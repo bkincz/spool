@@ -5,8 +5,8 @@ import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import pc from 'picocolors'
 import type { Workspace } from './workspace.js'
-import type { AppConfig } from './config.js'
-import { existsSync } from 'node:fs'
+import { HELPER_FILE, type AppConfig } from './config.js'
+import { existsSync, readFileSync } from 'node:fs'
 import { run, runShell, spawnProcess, killTree } from '../util/exec.js'
 import { waitForManifest } from '../util/net.js'
 import { CliError } from '../util/errors.js'
@@ -81,6 +81,9 @@ interface AppStatus {
 /** Startup chatter is capped per app; a crash or slow start flushes what is kept. */
 const BUFFER_CAP = 400
 
+/** dev runs each app's dev server; preview serves the built dist folders. */
+export type ServeMode = 'dev' | 'preview'
+
 /**
  * Buffers each app's startup output, prints one summary panel once every
  * server is ready, then streams logs with prefixes. A clean start drops the
@@ -98,9 +101,12 @@ class DevOutput {
 		if (this.anchored) this.paint()
 	}
 
-	constructor(private readonly total: number) {
+	constructor(
+		private readonly total: number,
+		private readonly mode: ServeMode
+	) {
 		this.timer = setTimeout(() => {
-			log.warn('The dev servers have not reported ready yet. Streaming their logs.')
+			log.warn('The servers have not reported ready yet. Streaming their logs.')
 			this.startStreaming()
 		}, 15_000)
 	}
@@ -151,7 +157,9 @@ class DevOutput {
 		const local = plain.match(/Local:\s+(http\S+)/)
 		if (local) status.url = local[1]!
 
-		if (status.viteVersion !== undefined && status.url !== undefined) status.ready = true
+		// vite preview prints no version banner, so the url alone marks ready.
+		const versionSeen = this.mode === 'preview' || status.viteVersion !== undefined
+		if (versionSeen && status.url !== undefined) status.ready = true
 	}
 
 	/**
@@ -241,8 +249,12 @@ class DevOutput {
 			role: `${status.app.type} · ${status.app.framework}`,
 			url: status.url ?? `http://localhost:${status.app.port}/`,
 			meta: [
-				sharedVite === undefined ? `vite ${status.viteVersion}` : undefined,
-				`${(Number(status.readyMs) / 1000).toFixed(1)}s`,
+				sharedVite === undefined && status.viteVersion !== undefined
+					? `vite ${status.viteVersion}`
+					: undefined,
+				status.readyMs === undefined
+					? undefined
+					: `${(Number(status.readyMs) / 1000).toFixed(1)}s`,
 			]
 				.filter(Boolean)
 				.join(' · '),
@@ -268,11 +280,11 @@ class DevOutput {
 			return `${cell.status.color(name!)}${pc.dim(role!)}${pc.cyan(url!)}${pc.dim(meta!)}`
 		}
 
-		const title = ' dev servers ready '
+		const title = this.mode === 'dev' ? ' dev servers ready ' : ' preview servers ready '
 		const fill = Math.max(inner - title.length - 1, 0)
 		const footer = [
 			sharedVite === undefined ? undefined : `vite ${sharedVite}`,
-			'watching for changes',
+			this.mode === 'dev' ? 'watching for changes' : 'serving production builds',
 			'press ctrl+c to stop',
 		]
 			.filter(Boolean)
@@ -321,9 +333,17 @@ class DevOutput {
 }
 
 /*
- *   DEV
+ *   DEV / PREVIEW
  ***************************************************************************************************/
-export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
+export function devAll(ws: Workspace, only?: string[]): Promise<void> {
+	return serveAll(ws, 'dev', only)
+}
+
+export function previewAll(ws: Workspace, only?: string[]): Promise<void> {
+	return serveAll(ws, 'preview', only)
+}
+
+async function serveAll(ws: Workspace, mode: ServeMode, only?: string[]): Promise<void> {
 	const apps = selectApps(ws, only)
 	if (!apps.length) {
 		log.warn('No apps to run.')
@@ -331,11 +351,16 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 	}
 
 	warnExcludedRemotes(apps)
+	if (mode === 'preview') {
+		requireDists(ws, apps)
+		warnStalePreview(ws)
+		warnDeployedUrls(apps)
+	}
 
 	const remotes = remotesOf(apps)
 	const hosts = hostsOf(apps)
 	const children: ChildProcess[] = []
-	const output = new DevOutput(apps.length)
+	const output = new DevOutput(apps.length, mode)
 	let shuttingDown = false
 
 	let reportCrash!: (err: Error) => void
@@ -362,7 +387,7 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 	process.on('SIGTERM', onSignal)
 
 	const start = (named: NamedApp, colorIndex: number): void => {
-		const child = spawnApp(ws, named, COLORS[colorIndex % COLORS.length]!, output)
+		const child = spawnApp(ws, named, COLORS[colorIndex % COLORS.length]!, output, mode)
 		child.on('exit', code => {
 			if (shuttingDown || code === 0 || code === null) return
 
@@ -390,6 +415,43 @@ export async function devAll(ws: Workspace, only?: string[]): Promise<void> {
 	await crashed
 }
 
+/** Preview serves dist folders; failing up front beats vite's per-app error. */
+function requireDists(ws: Workspace, apps: NamedApp[]): void {
+	const missing = apps.filter(({ app }) => !existsSync(join(ws.root, app.path, 'dist')))
+	if (missing.length) {
+		throw new CliError(
+			`No dist folder for ${missing.map(a => a.name).join(', ')}. Run \`spool build\` first.`
+		)
+	}
+}
+
+/** Workspaces keep their scaffolded spool.vite.ts until `spool upgrade` regenerates it. */
+function helperLacks(ws: Workspace, token: string): boolean {
+	const helper = join(ws.root, HELPER_FILE)
+	return existsSync(helper) && !readFileSync(helper, 'utf8').includes(token)
+}
+
+/** Old helpers serve preview without CORS headers, and _headers files are inert here. */
+function warnStalePreview(ws: Workspace): void {
+	if (helperLacks(ws, 'cors: true')) {
+		log.warn(
+			`This workspace's ${HELPER_FILE} predates preview CORS support, so browsers may block hosts fetching remotes cross-origin. Run \`spool upgrade\`.`
+		)
+	}
+}
+
+/** Host dists bake remote urls at build time; preview cannot rewire them. */
+function warnDeployedUrls(apps: NamedApp[]): void {
+	if (!hostsOf(apps).length) return
+	const deployed = remotesOf(apps).filter(
+		({ app }) => app.url !== undefined || app.urls !== undefined
+	)
+	if (!deployed.length) return
+	log.warn(
+		`${deployed.map(a => a.name).join(', ')} carry a deployed url in spool.json, so hosts built with \`spool build\` load the deployed manifests instead of these local servers. Rebuild with SPOOL_REMOTE_<NAME>=http://localhost:<port>/mf-manifest.json to preview the local artifacts.`
+	)
+}
+
 async function waitForRemote({ name, app }: NamedApp): Promise<void> {
 	const url = `http://localhost:${app.port}/mf-manifest.json`
 	try {
@@ -405,9 +467,10 @@ function spawnApp(
 	ws: Workspace,
 	{ name, app }: NamedApp,
 	color: (s: string) => string,
-	output: DevOutput
+	output: DevOutput,
+	mode: ServeMode
 ): ChildProcess {
-	const child = spawnProcess(ws.manifest.packageManager, ['run', 'dev'], {
+	const child = spawnProcess(ws.manifest.packageManager, ['run', mode], {
 		cwd: join(ws.root, app.path),
 	})
 
@@ -420,15 +483,19 @@ function spawnApp(
 /*
  *   BUILD
  ***************************************************************************************************/
-export async function buildAll(ws: Workspace, only?: string[]): Promise<void> {
+export async function buildAll(ws: Workspace, only?: string[], env?: string): Promise<void> {
 	const apps = selectApps(ws, only)
 	const ordered = [...remotesOf(apps), ...hostsOf(apps)]
+	if (env !== undefined) requireEnvSupport(ws, apps, env)
+	// SPOOL_ENV picks each remote's `urls` entry inside spool.vite.ts.
+	const spawnEnv = env === undefined ? {} : { env: { ...process.env, SPOOL_ENV: env } }
 
 	for (const { name, app } of ordered) {
-		log.step(`building ${pc.bold(name)} (${app.type})`)
+		log.step(`building ${pc.bold(name)} (${app.type})${env ? pc.dim(` for ${env}`) : ''}`)
 		try {
 			await run(ws.manifest.packageManager, ['run', 'build'], {
 				cwd: join(ws.root, app.path),
+				...spawnEnv,
 			})
 		} catch {
 			throw new CliError(
@@ -439,13 +506,29 @@ export async function buildAll(ws: Workspace, only?: string[]): Promise<void> {
 	log.success(`built ${ordered.length} app(s)`)
 }
 
+/** --env resolves inside the generated helper, so an old helper would silently ignore it. */
+function requireEnvSupport(ws: Workspace, apps: NamedApp[], env: string): void {
+	if (helperLacks(ws, 'SPOOL_ENV')) {
+		throw new CliError(
+			`This workspace's ${HELPER_FILE} predates environments, so --env would be silently ignored. Run \`spool upgrade\` first.`
+		)
+	}
+	if (!remotesOf(apps).some(({ app }) => app.urls?.[env])) {
+		log.warn(
+			`No selected remote has a "urls.${env}" entry in spool.json, so every remote falls back to its "url" or localhost.`
+		)
+	}
+}
+
 /*
  *   DEPLOY
  ***************************************************************************************************/
-export async function deployAll(ws: Workspace, only?: string[]): Promise<void> {
+export async function deployAll(ws: Workspace, only?: string[], env?: string): Promise<void> {
 	const apps = selectApps(ws, only)
 	const ordered = [...remotesOf(apps), ...hostsOf(apps)]
 	const deployable = ordered.filter(a => a.app.deploy)
+	// Deploy commands are the user's own; SPOOL_ENV lets them branch per env.
+	const spawnEnv = env === undefined ? {} : { env: { ...process.env, SPOOL_ENV: env } }
 
 	for (const { name } of ordered.filter(a => !a.app.deploy)) {
 		log.warn(`${name} has no "deploy" command in spool.json; skipping it.`)
@@ -463,9 +546,9 @@ export async function deployAll(ws: Workspace, only?: string[]): Promise<void> {
 				`${name} has no dist folder. Run \`spool build\` first if its deploy expects one.`
 			)
 		}
-		log.step(`deploying ${pc.bold(name)} (${app.type})`)
+		log.step(`deploying ${pc.bold(name)} (${app.type})${env ? pc.dim(` for ${env}`) : ''}`)
 		try {
-			await runShell(app.deploy!, { cwd: dir })
+			await runShell(app.deploy!, { cwd: dir, ...spawnEnv })
 		} catch {
 			throw new CliError(`Deploy failed for "${name}". Its command: ${app.deploy}`)
 		}

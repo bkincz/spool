@@ -204,6 +204,7 @@ describe('diagnose', () => {
 
 		afterEach(() => {
 			vi.unstubAllGlobals()
+			delete process.env.SPOOL_REMOTE_DASHBOARD
 		})
 
 		it('stays quiet for a healthy deployed remote', async () => {
@@ -241,6 +242,58 @@ describe('diagnose', () => {
 			const issues = await diagnoseRemotes(workspace())
 			expect(issues[0]).toMatchObject({ level: 'error', app: 'dashboard' })
 			expect(issues[0]!.message).toContain('ENOTFOUND')
+		})
+
+		it('checks the urls entry for --env, falling back to url', async () => {
+			respond('{"id":"dashboard"}', {
+				headers: { 'access-control-allow-origin': '*' },
+			})
+			const ws = makeWorkspace(root, {
+				shell: host({ remotes: ['dashboard'] }),
+				dashboard: remote({
+					url: URL,
+					urls: { staging: 'https://staging.example.com/mf-manifest.json' },
+				}),
+			})
+
+			await diagnoseRemotes(ws, 'staging')
+			expect(fetch).toHaveBeenCalledWith(
+				'https://staging.example.com/mf-manifest.json',
+				expect.anything()
+			)
+
+			await diagnoseRemotes(ws, 'production')
+			expect(fetch).toHaveBeenLastCalledWith(URL, expect.anything())
+		})
+
+		it('lets SPOOL_REMOTE_<NAME> override the probed url like builds do', async () => {
+			respond('{"id":"dashboard"}', {
+				headers: { 'access-control-allow-origin': '*' },
+			})
+			process.env.SPOOL_REMOTE_DASHBOARD = 'https://canary.example.com/mf-manifest.json'
+
+			await diagnoseRemotes(workspace())
+			expect(fetch).toHaveBeenCalledWith(
+				'https://canary.example.com/mf-manifest.json',
+				expect.anything()
+			)
+		})
+
+		it('warns when no remote has a urls entry for --env', async () => {
+			respond('{"id":"dashboard"}', {
+				headers: { 'access-control-allow-origin': '*' },
+			})
+			const issues = await diagnoseRemotes(workspace(), 'stagng')
+			expect(issues[0]).toMatchObject({ level: 'warn', app: '' })
+			expect(issues[0]!.message).toContain('urls.stagng')
+		})
+
+		it('names the missing urls entry when --env finds no url at all', async () => {
+			respond('{}')
+			const ws = makeWorkspace(root, { dashboard: remote() })
+			const issues = await diagnoseRemotes(ws, 'staging')
+			expect(issues.some(i => i.message.includes('no "urls.staging" or "url"'))).toBe(true)
+			expect(fetch).not.toHaveBeenCalled()
 		})
 
 		it('warns about remotes without a url and skips hosts', async () => {

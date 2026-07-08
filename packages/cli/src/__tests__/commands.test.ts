@@ -7,9 +7,10 @@ import { join } from 'node:path'
 import { create } from '../commands/create.js'
 import { dev } from '../commands/dev.js'
 import { build } from '../commands/build.js'
+import { preview } from '../commands/preview.js'
 import { deploy } from '../commands/deploy.js'
 import { doctor } from '../commands/doctor.js'
-import { devAll, buildAll, deployAll } from '../core/orchestrator.js'
+import { devAll, previewAll, buildAll, deployAll } from '../core/orchestrator.js'
 import { log } from '../util/logger.js'
 import { freshDir, removeDir } from './helpers.js'
 
@@ -18,6 +19,7 @@ import { freshDir, removeDir } from './helpers.js'
  ***************************************************************************************************/
 vi.mock('../core/orchestrator.js', () => ({
 	devAll: vi.fn().mockResolvedValue(undefined),
+	previewAll: vi.fn().mockResolvedValue(undefined),
 	buildAll: vi.fn().mockResolvedValue(undefined),
 	deployAll: vi.fn().mockResolvedValue(undefined),
 }))
@@ -46,6 +48,7 @@ afterEach(() => {
 	process.chdir(cwd)
 	removeDir(dir)
 	process.exitCode = undefined
+	delete process.env.SPOOL_ENV
 	vi.clearAllMocks()
 	vi.restoreAllMocks()
 })
@@ -66,17 +69,47 @@ describe('dev', () => {
 })
 
 /*
+ *   PREVIEW
+ ***************************************************************************************************/
+describe('preview', () => {
+	it('previews every app by default', async () => {
+		await preview({})
+		expect(previewAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+	})
+
+	it('passes the only filter through', async () => {
+		await preview({ only: 'shell, dashboard' })
+		expect(previewAll).toHaveBeenCalledWith(expect.anything(), ['shell', 'dashboard'])
+	})
+})
+
+/*
  *   BUILD
  ***************************************************************************************************/
 describe('build', () => {
 	it('builds every app by default', async () => {
 		await build({})
-		expect(buildAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+		expect(buildAll).toHaveBeenCalledWith(
+			expect.objectContaining({ root: dir }),
+			undefined,
+			undefined
+		)
 	})
 
-	it('passes the only filter through', async () => {
-		await build({ only: 'dashboard' })
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'])
+	it('passes the only filter and env through', async () => {
+		await build({ only: 'dashboard', env: 'staging' })
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
+	})
+
+	it('treats an empty --env as no env', async () => {
+		await build({ env: '' })
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined)
+	})
+
+	it('reads an exported SPOOL_ENV when --env is absent', async () => {
+		process.env.SPOOL_ENV = 'staging'
+		await build({})
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging')
 	})
 })
 
@@ -86,12 +119,16 @@ describe('build', () => {
 describe('deploy', () => {
 	it('deploys every app by default', async () => {
 		await deploy({})
-		expect(deployAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+		expect(deployAll).toHaveBeenCalledWith(
+			expect.objectContaining({ root: dir }),
+			undefined,
+			undefined
+		)
 	})
 
-	it('passes the only filter through', async () => {
-		await deploy({ only: 'dashboard' })
-		expect(deployAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'])
+	it('passes the only filter and env through', async () => {
+		await deploy({ only: 'dashboard', env: 'staging' })
+		expect(deployAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
 	})
 })
 
@@ -122,6 +159,15 @@ describe('doctor', () => {
 		await doctor()
 		expect(info).toHaveBeenCalledWith(expect.stringContaining('warning'))
 		expect(process.exitCode).toBeUndefined()
+	})
+
+	it('checks deployed remotes with --remote', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		vi.spyOn(log, 'info').mockImplementation(() => {})
+		vi.spyOn(log, 'plain').mockImplementation(() => {})
+
+		await doctor({ remote: true })
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('no "url"'))
 	})
 
 	it('sets a non-zero exit code when it finds an error', async () => {

@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import type { Workspace } from './workspace.js'
 import { HELPER_FILE, type Manifest } from './config.js'
 import { FRAMEWORK_DEPS } from './versions.js'
-import { packageName } from '../util/names.js'
+import { packageName, remoteEnvVar } from '../util/names.js'
 
 /*
  *   TYPES
@@ -201,23 +201,41 @@ function readPackageJson(path: string): PackageJsonDeps | 'missing' | 'invalid' 
  *   REMOTE CHECKS
  ***************************************************************************************************/
 /**
- * Fetches each deployed remote's manifest url. Catches the two production
- * failures a static host hides: the SPA fallback answering 200 with HTML when
- * mf-manifest.json is missing, and absent CORS headers that make browsers
- * block cross-origin hosts.
+ * Fetches each deployed remote's manifest url, resolved the way a production
+ * build resolves it: SPOOL_REMOTE_<NAME> override first, then the urls entry
+ * for env, then url. Catches the two production failures a static host hides:
+ * the SPA fallback answering 200 with HTML when mf-manifest.json is missing,
+ * and absent CORS headers that make browsers block cross-origin hosts.
  */
-export async function diagnoseRemotes(ws: Workspace): Promise<Diagnostic[]> {
+export async function diagnoseRemotes(ws: Workspace, env?: string): Promise<Diagnostic[]> {
 	const remotes = Object.entries(ws.manifest.apps).filter(([, app]) => app.type === 'remote')
-	const results = await Promise.all(
-		remotes.map(([name, app]) =>
-			app.url ? checkDeployedRemote(name, app.url) : Promise.resolve([noUrl(name)])
+	const issues: Diagnostic[] = []
+	if (env !== undefined && !remotes.some(([, app]) => app.urls?.[env])) {
+		issues.push(
+			warn(
+				'',
+				`No remote has a "urls.${env}" entry in spool.json; checking each remote's "url" instead.`
+			)
 		)
+	}
+	const results = await Promise.all(
+		remotes.map(([name, app]) => {
+			const url =
+				process.env[remoteEnvVar(name)] ||
+				((env === undefined ? undefined : app.urls?.[env]) ?? app.url)
+			return url ? checkDeployedRemote(name, url) : Promise.resolve([noUrl(name, env)])
+		})
 	)
-	return results.flat()
+	return [...issues, ...results.flat()]
 }
 
-const noUrl = (name: string): Diagnostic =>
-	warn(name, 'It has no "url" in spool.json, so there is no deployed manifest to check.')
+const noUrl = (name: string, env?: string): Diagnostic =>
+	warn(
+		name,
+		env === undefined
+			? 'It has no "url" in spool.json, so there is no deployed manifest to check.'
+			: `It has no "urls.${env}" or "url" in spool.json, so there is no deployed manifest to check.`
+	)
 
 async function checkDeployedRemote(name: string, url: string): Promise<Diagnostic[]> {
 	let response: Response

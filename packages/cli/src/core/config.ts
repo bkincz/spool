@@ -71,6 +71,8 @@ export const AppSchema = z
 		port: z.number().int().positive().max(65535),
 		/** Deployed manifest URL of a remote, used by host production builds. */
 		url: z.string().url().optional(),
+		/** Per-environment manifest URLs; `--env <name>` on build selects one. */
+		urls: z.record(z.string().url()).optional(),
 		/** Shell command `spool deploy` runs in the app folder. */
 		deploy: z.string().optional(),
 		/** Remotes a host consumes (names referencing other apps). */
@@ -88,7 +90,7 @@ export const ManifestSchema = z
 		/** Schema version for forward-compat migrations. */
 		version: z.literal(MANIFEST_VERSION).default(MANIFEST_VERSION),
 		packageManager: z.enum(['pnpm', 'npm', 'yarn']).default('pnpm'),
-		bundler: z.enum(['vite', 'rspack']).default('vite'),
+		bundler: z.enum(['vite']).default('vite'),
 		/** Deps shared as singletons across federation boundary. */
 		shared: z.array(z.string()).default(['react', 'react-dom']),
 		/** App registry keyed by app name. */
@@ -109,6 +111,16 @@ export function parseManifest(raw: unknown): Manifest {
 				`This workspace uses spool.json version ${String(v)}, but this CLI only understands version ${MANIFEST_VERSION}. Upgrade spool and try again.`
 			)
 		}
+	}
+	if (
+		raw !== null &&
+		typeof raw === 'object' &&
+		'bundler' in raw &&
+		(raw as { bundler: unknown }).bundler === 'rspack'
+	) {
+		throw new CliError(
+			'spool.json sets bundler "rspack", which is not supported yet. Run `spool upgrade` to remove the field, or set it to "vite".'
+		)
 	}
 
 	const result = ManifestSchema.safeParse(raw)
