@@ -32,7 +32,7 @@ export function helperFile(): FileMap {
  *   WORKSPACE FILES
  ***************************************************************************************************/
 /** Workspace-root files, generated once by `spool create`. */
-export function workspaceFiles(m: Manifest): FileMap {
+export function workspaceFiles(m: Manifest, allowBuilds: string[] = []): FileMap {
 	const files: FileMap = {
 		'spool.json': json(m),
 		...helperFile(),
@@ -66,8 +66,10 @@ export function workspaceFiles(m: Manifest): FileMap {
 	// pnpm declares its workspace (and its postinstall-script allowlist) in a
 	// dedicated file; npm and yarn read a `workspaces` field in package.json.
 	if (m.packageManager === 'pnpm') {
+		const builds = [...new Set(['esbuild', ...allowBuilds])].sort()
+		const yamlKey = (name: string): string => (name.startsWith('@') ? `"${name}"` : name)
 		files['pnpm-workspace.yaml'] =
-			`packages:\n  - "apps/*"\n  - "packages/*"\n\n# esbuild (via vite) needs its postinstall to fetch the platform binary.\n# allowBuilds is the pnpm 11+ spelling; onlyBuiltDependencies covers pnpm 10.\nallowBuilds:\n  esbuild: true\nonlyBuiltDependencies:\n  - esbuild\n`
+			`packages:\n  - "apps/*"\n  - "packages/*"\n\n# These postinstall scripts fetch platform binaries (esbuild via vite).\n# allowBuilds is the pnpm 11+ spelling; onlyBuiltDependencies covers pnpm 10.\nallowBuilds:\n${builds.map(build => `  ${yamlKey(build)}: true`).join('\n')}\nonlyBuiltDependencies:\n${builds.map(build => `  - ${yamlKey(build)}`).join('\n')}\n`
 	}
 
 	// Yarn Berry defaults to Plug'n'Play, which breaks Vite and Module

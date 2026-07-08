@@ -21,6 +21,7 @@ vi.mock('@clack/prompts', () => ({
 	select: vi.fn((opts: { message: string }) =>
 		Promise.resolve(opts.message.startsWith('Framework') ? 'react' : 'pnpm')
 	),
+	multiselect: vi.fn(() => Promise.resolve([])),
 	spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
 }))
 
@@ -112,13 +113,41 @@ describe('create (interactive)', () => {
 
 		const frameworkPrompts = vi
 			.mocked(p.select)
-			.mock.calls.filter(([opts]) => (opts as { message: string }).message.startsWith('Framework'))
+			.mock.calls.filter(([opts]) =>
+				(opts as { message: string }).message.startsWith('Framework')
+			)
 		expect(frameworkPrompts).toHaveLength(0)
 		const manifest = JSON.parse(
 			(await import('node:fs')).readFileSync(join(dir, 'spool.json'), 'utf8')
 		)
 		expect(manifest.apps.host1.framework).toBe('svelte')
 		expect(manifest.apps.one.framework).toBe('svelte')
+	})
+
+	it('scaffolds the extras picked in the addons prompt', async () => {
+		vi.mocked(p.text)
+			.mockResolvedValueOnce('myapp')
+			.mockResolvedValueOnce('host1')
+			.mockResolvedValueOnce('one')
+		vi.mocked(p.multiselect).mockResolvedValueOnce(['ladle', 'playwright'])
+
+		await create(undefined, { here: true })
+
+		expect(existsSync(join(dir, 'packages/ui/src/Button.stories.tsx'))).toBe(true)
+		expect(existsSync(join(dir, 'packages/e2e/playwright.config.ts'))).toBe(true)
+	})
+
+	it('skips the addons prompt in fully flag-driven runs', async () => {
+		await create(undefined, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			here: true,
+		})
+
+		expect(p.multiselect).not.toHaveBeenCalled()
+		expect(existsSync(join(dir, 'packages'))).toBe(false)
 	})
 
 	it('aborts without writing anything when a prompt is cancelled', async () => {
