@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.7.0
+
+Vue joins react and svelte. `--framework vue` works on `create` and `add`,
+vue remotes expose the same mount contract svelte remotes use, and vue hosts
+bridge react remotes out of the box.
+
+`spool create` now takes a framework per app. Hosts and remotes accept a
+`name:framework` spec, and interactive runs ask per app:
+
+```bash
+spool create acme --host shell:vue --remotes "dash:react, widget:svelte"
+```
+
+Apps without an explicit choice use `--framework` if given. Otherwise
+interactive runs prompt per app, and fully flag-driven runs default the host
+to react and remotes to the host's framework, so scripts and CI never hit a
+prompt.
+
+Also in this release:
+
+- The mount snippet `spool add` prints for vue hosts uses per-remote variable
+  names, so pasting it next to the generated mount code (or pasting two
+  snippets) compiles cleanly.
+- Host templates now dispatch on a remote's contract (component or mount
+  function) instead of hardcoding framework names, and framework validation,
+  the default framework, and the mount-contract typing each live in one
+  place, shared by every command.
+- `spool create` dedupes `shared` at the dependency level, matching
+  `spool add`.
+- Hosts scaffolded with no remotes no longer import unused lifecycle helpers,
+  so fresh scaffolds pass strict lint configs.
+
+Existing manifests are unchanged.
+
 ## 1.6.0
 
 Multi-framework workspaces. Every app has a `framework` in `spool.json`

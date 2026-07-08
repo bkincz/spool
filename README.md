@@ -55,15 +55,17 @@ Scaffolds a new workspace. Pass what you know up front, or leave options out and
 |---|---|---|
 | `[dir]` | workspace name | Folder to create the workspace in |
 | `-n, --name <name>` | folder name | Workspace name |
-| `--host <name>` | `shell` | Host (shell) app name |
-| `--remotes <list>` | prompt | Comma-separated remote names |
+| `--host <name>` | `shell` | Host (shell) app name, as `name` or `name:framework` |
+| `--remotes <list>` | prompt | Comma-separated remote names, each as `name` or `name:framework` |
 | `--pm <manager>` | prompt (`pnpm`) | Package manager: `pnpm`, `npm`, or `yarn` |
+| `--framework <framework>` | see below | Default framework: `react`, `svelte`, or `vue` |
 | `--here` | off | Scaffold into the current folder |
 | `--no-install` | off | Skip the install step |
 
 Notes:
 
 - App and workspace names are lowercase, start with a letter, and use only letters, digits, and single hyphens. Examples: `dashboard`, `acme-frontend`.
+- Each app picks its framework independently: `--host shell:vue --remotes "dash:react, widget:svelte"`. Apps without an explicit choice use `--framework` if given; otherwise interactive runs ask per app, and fully flag-driven runs default the host to `react` and remotes to the host's framework, so scripts and CI never hit a prompt.
 - With yarn, spool writes a `.yarnrc.yml` that pins Yarn Berry to the `node_modules` linker, because Berry's Plug'n'Play doesn't work with Vite and Module Federation. Yarn Classic ignores that file, so the same workspace runs on either version.
 
 ### `spool dev`
@@ -102,6 +104,7 @@ spool add billing --host shell  # wire into a specific host
 | `-t, --type <type>` | `remote` | `host` or `remote` |
 | `-p, --port <port>` | next free | Dev server port |
 | `--host <name>` | first host | Host to wire a new remote into |
+| `--framework <framework>` | `react` | `react`, `svelte`, or `vue` |
 | `--no-install` | off | Skip the install step |
 
 Adding a remote updates `spool.json`, the host's typings, and any bridge files the host needs. Your host's App component is never touched; spool prints the exact mount snippet to paste in, matched to the host's framework.
@@ -204,6 +207,7 @@ Everything lives in one `spool.json` at the workspace root. Each app's `vite.con
 | `bundler` | `vite` |
 | `shared` | Dependencies shared as singletons across apps |
 | `apps.<name>.type` | `host` consumes remotes, `remote` exposes modules |
+| `apps.<name>.framework` | `react`, `svelte`, or `vue`. Defaults to `react` |
 | `apps.<name>.path` | App folder, relative to the root |
 | `apps.<name>.port` | Dev server port |
 | `apps.<name>.url` | Optional. The remote's deployed `mf-manifest.json`, used by host production builds |
@@ -238,11 +242,12 @@ Notes:
 
 ## Frameworks
 
-Every app has a `framework` in `spool.json`, defaulting to `react`. Pass `--framework svelte` to `spool create` for a whole workspace, or to `spool add` for a single app, and frameworks can mix freely in one workspace:
+Every app has a `framework` in `spool.json`, defaulting to `react`. Pick one per app with a `name:framework` spec on `spool create`, with `--framework` on `spool add`, or through the per-app prompt in interactive runs. Frameworks mix freely in one workspace:
 
 ```bash
-spool create acme --framework svelte
-spool add widget --framework svelte     # a svelte remote in a react workspace
+spool create acme --host shell:vue --remotes "dash:react, widget:svelte"
+spool create acme --framework svelte    # one framework for the whole workspace
+spool add widget --framework vue        # a vue remote in a react workspace
 ```
 
 How mixing works:
@@ -276,7 +281,7 @@ const loadWidget = () => import("widget/App");
 // render <MountRemote load={loadWidget} /> where the remote belongs
 ```
 
-Supported today: `react` and `svelte`. Vue and other vite-native frameworks are the same recipe and likely to follow. Angular is deliberately out of scope: its Module Federation story is webpack/rspack based, and Angular-on-vite is not yet mature enough to support honestly.
+Supported today: `react`, `svelte`, and `vue`. Other vite-native frameworks are the same recipe and likely to follow. Angular is deliberately out of scope: its Module Federation story is webpack/rspack based, and Angular-on-vite is not yet mature enough to support honestly.
 
 ## Sharing state between remotes
 
@@ -306,7 +311,7 @@ The [live demo](https://spool-demo-shell.pages.dev) runs this pattern: its brows
 
 ## What you get
 
-Each workspace is a plain Vite + React + TypeScript monorepo. Nothing exotic, no framework to learn:
+Each workspace is a plain Vite + TypeScript monorepo. Nothing exotic, no meta-framework to learn:
 
 ```
 acme/

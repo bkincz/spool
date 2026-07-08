@@ -1,6 +1,6 @@
 {
 	"name": "@bkincz/spool",
-	"version": "1.6.0",
+	"version": "1.7.0",
 	"description": "spool CLI: create, configure and maintain micro frontends",
 	"type": "module",
 	"keywords": [
@@ -8,6 +8,8 @@
 		"module-federation",
 		"vite",
 		"react",
+		"svelte",
+		"vue",
 		"cli",
 		"scaffolding",
 		"monorepo"
