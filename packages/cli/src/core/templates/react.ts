@@ -3,7 +3,8 @@
  *   REACT TEMPLATES
  ***************************************************************************************************/
 import { pascalCase } from '../../util/names.js'
-import type { FrameworkTemplate, MountHint, RemoteRef } from './index.js'
+import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_IMPORT } from './bridges.js'
+import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
 
 export const reactTemplate: FrameworkTemplate = {
 	remoteContract: 'component',
@@ -14,9 +15,9 @@ export const reactTemplate: FrameworkTemplate = {
 	vitePlugin: { importLine: 'import react from "@vitejs/plugin-react";', call: 'react()' },
 	remoteTyping: name =>
 		`declare module "${name}/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`,
-	sourceFiles: (appName, isHost, refs) => ({
+	sourceFiles: (appName, isHost, refs, extras) => ({
 		'src/main.tsx': mainTsx(),
-		'src/App.tsx': isHost ? hostApp(appName, refs) : remoteApp(appName),
+		'src/App.tsx': isHost ? hostApp(appName, refs, extras) : remoteApp(appName, extras),
 	}),
 	bridgeFiles: () => ({}),
 	mountHint,
@@ -56,9 +57,17 @@ function MountRemote({ load }: { load: () => Promise<{ default: (el: HTMLElement
   return <div ref={ref} />;
 }`
 
-function hostApp(appName: string, refs: RemoteRef[]): string {
+function hostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
 	const reactRefs = refs.filter(r => r.contract === 'component')
 	const mountRefs = refs.filter(r => r.contract === 'mount')
+
+	const stateImports = extras.stateExample
+		? `import { useMachine } from "@bkincz/clutch/react";\nimport { counterMachine } from "${STATE_STORE_IMPORT}";\n`
+		: ''
+	const stateHook = extras.stateExample ? `  const { state } = useMachine(counterMachine);\n` : ''
+	const stateLine = extras.stateExample
+		? `\n      <p data-testid="${STATE_COUNT_TESTID}">${STATE_COUNT_TEXT} {state.count}</p>`
+		: ''
 
 	const imports = [
 		...reactRefs.map(r => `const ${pascalCase(r.name)} = lazy(() => import("${r.name}/App"));`),
@@ -85,13 +94,13 @@ function hostApp(appName: string, refs: RemoteRef[]): string {
 	const noRemotes = `// No remotes wired yet. Add one with \`spool add <name> --host ${appName}\`.`
 
 	return `import { ${reactImports.join(', ')} } from "react";
-
+${stateImports}
 ${imports || noRemotes}
 ${mountRefs.length ? `\n${MOUNT_REMOTE_COMPONENT}\n` : ''}
 export default function App() {
-  return (
+${stateHook}  return (
     <main style={{ fontFamily: "system-ui", padding: 24 }}>
-      <h1>${appName} (host)</h1>
+      <h1>${appName} (host)</h1>${stateLine}
 ${sections || '      <p>No remotes mounted yet.</p>'}
     </main>
   );
@@ -99,11 +108,39 @@ ${sections || '      <p>No remotes mounted yet.</p>'}
 `
 }
 
-function remoteApp(appName: string): string {
-	return `export default function App() {
+function remoteApp(appName: string, extras: TemplateExtras): string {
+	if (!extras.stateExample) {
+		return `export default function App() {
   return (
     <div style={{ fontFamily: "system-ui", padding: 16, border: "1px solid #ccc" }}>
       <strong>${appName}</strong>: a remote module exposed via Module Federation.
+    </div>
+  );
+}
+`
+	}
+
+	const buttonImport = extras.uiButton ? `\nimport { Button } from "ui";` : ''
+	const button = extras.uiButton
+		? `<Button onClick={increment}>Increment</Button>`
+		: `<button onClick={increment}>Increment</button>`
+
+	return `import { useMachine } from "@bkincz/clutch/react";
+import { counterMachine } from "${STATE_STORE_IMPORT}";${buttonImport}
+
+export default function App() {
+  const { state, mutate } = useMachine(counterMachine);
+  const increment = () =>
+    mutate(draft => {
+      draft.count += 1;
+    });
+  return (
+    <div style={{ fontFamily: "system-ui", padding: 16, border: "1px solid #ccc" }}>
+      <p>
+        <strong>${appName}</strong>: a remote module exposed via Module Federation.
+      </p>
+      <p>${STATE_COUNT_TEXT} {state.count}</p>
+      ${button}
     </div>
   );
 }

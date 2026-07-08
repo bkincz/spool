@@ -109,6 +109,8 @@ describe('upgrade', () => {
 		expect(pkg.packageManager).toMatch(/^pnpm@/)
 		expect(pkg.devDependencies.typescript).toBeDefined()
 		expect(pkg.devDependencies['@types/node']).toBeDefined()
+		// Older workspaces did not carry the cli; upgrade adds it back.
+		expect(pkg.devDependencies['@bkincz/spool']).toMatch(/^\^\d+\.\d+\.\d+/)
 	})
 
 	it('leaves a customized vite config alone and says so', async () => {

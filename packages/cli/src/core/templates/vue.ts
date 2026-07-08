@@ -3,8 +3,14 @@
  *   VUE TEMPLATES
  ***************************************************************************************************/
 import { camelCase } from '../../util/names.js'
-import { mountContractTyping, reactBridgeFiles } from './bridges.js'
-import type { FrameworkTemplate, MountHint, RemoteRef } from './index.js'
+import {
+	mountContractTyping,
+	reactBridgeFiles,
+	STATE_COUNT_TESTID,
+	STATE_COUNT_TEXT,
+	STATE_STORE_IMPORT,
+} from './bridges.js'
+import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
 
 export const vueTemplate: FrameworkTemplate = {
 	remoteContract: 'mount',
@@ -26,10 +32,12 @@ declare module "*.vue" {
 		call: 'vue()',
 	},
 	remoteTyping: mountContractTyping,
-	sourceFiles: (appName, isHost, refs) => {
+	sourceFiles: (appName, isHost, refs, extras) => {
 		const files: Record<string, string> = {
 			'src/main.ts': vueMain(),
-			'src/App.vue': isHost ? vueHostApp(appName, refs) : vueRemoteApp(appName),
+			'src/App.vue': isHost
+				? vueHostApp(appName, refs, extras)
+				: vueRemoteApp(appName, extras),
 		}
 		if (!isHost) files['src/mount.ts'] = vueMount()
 		return { ...files, ...(isHost ? reactBridgeFiles(refs) : {}) }
@@ -63,18 +71,58 @@ export default function mountApp(target: HTMLElement): () => void {
 `
 }
 
-function vueRemoteApp(appName: string): string {
-	return `<template>
+function vueRemoteApp(appName: string, extras: TemplateExtras): string {
+	if (!extras.stateExample) {
+		return `<template>
   <section style="font-family: system-ui; padding: 16px; border: 1px solid #ccc">
     <strong>${appName}</strong>: a Vue remote exposed via Module Federation.
   </section>
 </template>
 `
+	}
+
+	return `<script setup lang="ts">
+import { onBeforeUnmount, ref } from "vue";
+import { counterMachine } from "${STATE_STORE_IMPORT}";
+
+const count = ref(counterMachine.getState().count);
+onBeforeUnmount(counterMachine.subscribe(state => { count.value = state.count; }));
+
+const increment = () =>
+  counterMachine.mutate(draft => {
+    draft.count += 1;
+  });
+</script>
+
+<template>
+  <section style="font-family: system-ui; padding: 16px; border: 1px solid #ccc">
+    <p><strong>${appName}</strong>: a Vue remote exposed via Module Federation.</p>
+    <p>${STATE_COUNT_TEXT} {{ count }}</p>
+    <button @click="increment">Increment</button>
+  </section>
+</template>
+`
 }
 
-function vueHostApp(appName: string, refs: RemoteRef[]): string {
+function vueHostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
 	const hasBridge = refs.some(r => r.contract === 'component')
 	const bridgeImport = hasBridge ? `\nimport { mountReact } from "./react-bridge";` : ''
+
+	const vueSymbols = [
+		...new Set([
+			...(refs.length ? ['onBeforeUnmount', 'onMounted', 'ref'] : []),
+			...(extras.stateExample ? ['onBeforeUnmount', 'ref'] : []),
+		]),
+	].sort()
+	const stateImport = extras.stateExample
+		? `\nimport { counterMachine } from "${STATE_STORE_IMPORT}";`
+		: ''
+	const stateLines = extras.stateExample
+		? `\nconst count = ref(counterMachine.getState().count);\nonBeforeUnmount(counterMachine.subscribe(state => { count.value = state.count; }));\n`
+		: ''
+	const stateMarkup = extras.stateExample
+		? `\n    <p data-testid="${STATE_COUNT_TESTID}">${STATE_COUNT_TEXT} {{ count }}</p>`
+		: ''
 
 	const elements = refs
 		.map(r => `const ${camelCase(r.name)}El = ref<HTMLElement | null>(null);`)
@@ -118,8 +166,8 @@ onBeforeUnmount(() => {
 // No remotes wired yet. Add one with \`spool add <name> --host ${appName}\`.
 `
 
-	const imports = refs.length
-		? `import { onBeforeUnmount, onMounted, ref } from "vue";${bridgeImport}\n\n`
+	const imports = vueSymbols.length
+		? `import { ${vueSymbols.join(', ')} } from "vue";${bridgeImport}${stateImport}\n${stateLines}\n`
 		: ''
 
 	return `<script setup lang="ts">
@@ -128,7 +176,7 @@ ${lifecycle}</script>
 
 <template>
   <main style="font-family: system-ui; padding: 24px">
-    <h1>${appName} (host)</h1>
+    <h1>${appName} (host)</h1>${stateMarkup}
 ${sections || '    <p>No remotes mounted yet.</p>'}
   </main>
 </template>

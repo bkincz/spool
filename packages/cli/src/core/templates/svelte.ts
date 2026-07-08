@@ -3,8 +3,14 @@
  *   SVELTE TEMPLATES
  ***************************************************************************************************/
 import { camelCase } from '../../util/names.js'
-import { mountContractTyping, reactBridgeFiles } from './bridges.js'
-import type { FrameworkTemplate, MountHint, RemoteRef } from './index.js'
+import {
+	mountContractTyping,
+	reactBridgeFiles,
+	STATE_COUNT_TESTID,
+	STATE_COUNT_TEXT,
+	STATE_STORE_IMPORT,
+} from './bridges.js'
+import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
 
 export const svelteTemplate: FrameworkTemplate = {
 	remoteContract: 'mount',
@@ -26,10 +32,12 @@ declare module "*.svelte" {
 		call: 'svelte()',
 	},
 	remoteTyping: mountContractTyping,
-	sourceFiles: (appName, isHost, refs) => {
+	sourceFiles: (appName, isHost, refs, extras) => {
 		const files: Record<string, string> = {
 			'src/main.ts': svelteMain(),
-			'src/App.svelte': isHost ? svelteHostApp(appName, refs) : svelteRemoteApp(appName),
+			'src/App.svelte': isHost
+				? svelteHostApp(appName, refs, extras)
+				: svelteRemoteApp(appName, extras),
 		}
 		if (!isHost) files['src/mount.ts'] = svelteMount()
 		return { ...files, ...(isHost ? reactBridgeFiles(refs) : {}) }
@@ -64,16 +72,48 @@ export default function mountApp(target: HTMLElement): () => void {
 `
 }
 
-function svelteRemoteApp(appName: string): string {
-	return `<section style="font-family: system-ui; padding: 16px; border: 1px solid #ccc;">
+function svelteRemoteApp(appName: string, extras: TemplateExtras): string {
+	if (!extras.stateExample) {
+		return `<section style="font-family: system-ui; padding: 16px; border: 1px solid #ccc;">
   <strong>${appName}</strong>: a Svelte remote exposed via Module Federation.
+</section>
+`
+	}
+
+	return `<script lang="ts">
+  import { onMount } from "svelte";
+  import { counterMachine } from "${STATE_STORE_IMPORT}";
+
+  let count = counterMachine.getState().count;
+  onMount(() => counterMachine.subscribe(state => (count = state.count)));
+
+  const increment = () =>
+    counterMachine.mutate(draft => {
+      draft.count += 1;
+    });
+</script>
+
+<section style="font-family: system-ui; padding: 16px; border: 1px solid #ccc;">
+  <p><strong>${appName}</strong>: a Svelte remote exposed via Module Federation.</p>
+  <p>${STATE_COUNT_TEXT} {count}</p>
+  <button on:click={increment}>Increment</button>
 </section>
 `
 }
 
-function svelteHostApp(appName: string, refs: RemoteRef[]): string {
+function svelteHostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
 	const hasBridge = refs.some(r => r.contract === 'component')
 	const bridgeImport = hasBridge ? `\n  import { mountReact } from "./react-bridge";` : ''
+
+	const stateImport = extras.stateExample
+		? `\n  import { counterMachine } from "${STATE_STORE_IMPORT}";`
+		: ''
+	const stateLines = extras.stateExample
+		? `\n  let count = counterMachine.getState().count;\n  onMount(() => counterMachine.subscribe(state => (count = state.count)));\n`
+		: ''
+	const stateMarkup = extras.stateExample
+		? `\n  <p data-testid="${STATE_COUNT_TESTID}">${STATE_COUNT_TEXT} {count}</p>`
+		: ''
 
 	const elements = refs.map(r => `  let ${camelCase(r.name)}El: HTMLElement;`).join('\n')
 	const mounts = refs
@@ -111,14 +151,17 @@ ${mounts}
   // No remotes wired yet. Add one with \`spool add <name> --host ${appName}\`.
 `
 
-	const imports = refs.length ? `  import { onMount } from "svelte";${bridgeImport}\n\n` : ''
+	const imports =
+		refs.length || extras.stateExample
+			? `  import { onMount } from "svelte";${bridgeImport}${stateImport}\n${stateLines}\n`
+			: ''
 
 	return `<script lang="ts">
 ${imports}${elements}
 ${onMount}</script>
 
 <main style="font-family: system-ui; padding: 24px;">
-  <h1>${appName} (host)</h1>
+  <h1>${appName} (host)</h1>${stateMarkup}
 ${sections || '  <p>No remotes mounted yet.</p>'}
 </main>
 `

@@ -5,7 +5,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { requireWorkspace, type Workspace } from '../core/workspace.js'
-import { appDependencies, PNPM_VERSION, TOOLCHAIN } from '../core/versions.js'
+import { appDependencies, CLI_VERSION, PNPM_VERSION, TOOLCHAIN } from '../core/versions.js'
 import {
 	appConfigFiles,
 	helperFile,
@@ -88,10 +88,15 @@ async function upgradeRoot(ws: Workspace, writer: ChangeWriter): Promise<void> {
 			changes.push(`packageManager -> pnpm@${PNPM_VERSION}`)
 		}
 		pkg.devDependencies ??= {}
-		for (const dep of ['typescript', '@types/node'] as const) {
-			if (pkg.devDependencies[dep] !== TOOLCHAIN[dep]) {
-				changes.push(`${dep} ${pkg.devDependencies[dep] ?? 'added'} -> ${TOOLCHAIN[dep]}`)
-				pkg.devDependencies[dep] = TOOLCHAIN[dep]
+		const expected: Record<string, string> = {
+			typescript: TOOLCHAIN.typescript,
+			'@types/node': TOOLCHAIN['@types/node'],
+			'@bkincz/spool': `^${CLI_VERSION}`,
+		}
+		for (const [dep, range] of Object.entries(expected)) {
+			if (pkg.devDependencies[dep] !== range) {
+				changes.push(`${dep} ${pkg.devDependencies[dep] ?? 'added'} -> ${range}`)
+				pkg.devDependencies[dep] = range
 			}
 		}
 		return changes

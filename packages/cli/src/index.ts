@@ -1,7 +1,6 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { createRequire } from 'node:module'
 import { Command } from 'commander'
 import { create } from './commands/create.js'
 import { add } from './commands/add.js'
@@ -13,20 +12,19 @@ import { deploy } from './commands/deploy.js'
 import { ci } from './commands/ci.js'
 import { upgrade } from './commands/upgrade.js'
 import { doctor } from './commands/doctor.js'
+import { CLI_VERSION } from './core/versions.js'
 import { CliError } from './util/errors.js'
 import { log } from './util/logger.js'
 
 /*
  *   PROGRAM
  ***************************************************************************************************/
-const { version } = createRequire(import.meta.url)('../package.json') as { version: string }
-
 const program = new Command()
 
 program
 	.name('spool')
 	.description('Toolset for micro frontends and modular frontend projects')
-	.version(version)
+	.version(CLI_VERSION)
 
 /*
  *   COMMANDS

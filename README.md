@@ -108,6 +108,8 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. Bump the store's `contract` when the state shape changes.
 
+Extras picked together at create time compose: with the state addon, remotes render a working counter and the host shows the live shared count, the counter uses the ladle ui button when both are picked, and the Playwright spec gains a test proving a remote's click updates the shell. `spool addon` applies extras plainly, since it never rewrites components you may have edited.
+
 ## Deploying
 
 Every app builds to a plain static site. Give apps a `deploy` command in `spool.json`, deploy the remotes, set each remote's `url` to its deployed `mf-manifest.json`, then rebuild and deploy the host:

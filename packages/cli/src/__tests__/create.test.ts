@@ -192,6 +192,41 @@ describe('create', () => {
 		expect(manifest.shared).not.toContain('@bkincz/clutch/react')
 	})
 
+	it('scaffolds the shared-counter example when state is picked at create', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dash, widget:svelte',
+			addons: 'ladle, playwright, state',
+			install: false,
+		})
+
+		expect(read('apps/shell/src/App.tsx')).toContain('shell-count')
+		const dash = read('apps/dash/src/App.tsx')
+		expect(dash).toContain("import { Button } from 'ui'")
+		expect(dash).toContain('<Button onClick={increment}>Increment</Button>')
+		expect(JSON.parse(read('apps/dash/package.json')).dependencies.ui).toBe('workspace:*')
+		expect(read('apps/widget/src/App.svelte')).toContain('counterMachine.mutate')
+		expect(read('packages/e2e/tests/shell.spec.ts')).toContain('shared state')
+	})
+
+	it('falls back to a plain button when ladle is not picked', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dash',
+			addons: 'state',
+			install: false,
+		})
+
+		const dash = read('apps/dash/src/App.tsx')
+		expect(dash).toContain('<button onClick={increment}>Increment</button>')
+		expect(dash).not.toContain("from 'ui'")
+		expect(JSON.parse(read('apps/dash/package.json')).dependencies.ui).toBeUndefined()
+	})
+
 	it('rejects an unknown addon', async () => {
 		await expect(
 			create(dir, {

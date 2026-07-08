@@ -24,6 +24,7 @@ import {
 	ADDON_NAMES,
 	parseAddonList,
 	promptAddons,
+	templateExtras,
 	type AddonName,
 } from '../core/addons.js'
 import { FRAMEWORK_DEPS } from '../core/versions.js'
@@ -284,14 +285,18 @@ async function resolveFramework(
 }
 
 async function scaffold(targetDir: string, manifest: Manifest, addons: AddonName[]): Promise<void> {
+	const extras = templateExtras(addons)
 	const allowBuilds = addons.flatMap(addon => ADDONS[addon].allowBuilds)
 	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest, allowBuilds)))
 	await Promise.all([
 		...Object.entries(manifest.apps).map(async ([name, app]) =>
-			writeFiles(join(targetDir, app.path), await formatFiles(appFiles(manifest, name, app)))
+			writeFiles(
+				join(targetDir, app.path),
+				await formatFiles(appFiles(manifest, name, app, extras))
+			)
 		),
 		...addons.map(async addon =>
-			writeFiles(targetDir, await formatFiles(ADDONS[addon].files(manifest)))
+			writeFiles(targetDir, await formatFiles(ADDONS[addon].files(manifest, extras)))
 		),
 	])
 }

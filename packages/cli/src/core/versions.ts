@@ -1,10 +1,28 @@
 /*
  *   TOOLCHAIN VERSIONS
  ***************************************************************************************************/
+import { createRequire } from 'node:module'
 import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from './config.js'
 import { packageName } from '../util/names.js'
 
 export const PNPM_VERSION = '11.6.0'
+
+const requirePackage = createRequire(import.meta.url)
+
+/** The CLI's own version; the bundled dist and the src tree sit at different
+ * depths from package.json, so both are tried. */
+function readCliVersion(): string {
+	for (const rel of ['../package.json', '../../package.json']) {
+		try {
+			return (requirePackage(rel) as { version: string }).version
+		} catch {
+			continue
+		}
+	}
+	return '0.0.0'
+}
+
+export const CLI_VERSION = readCliVersion()
 
 /**
  * Dependency ranges for every scaffolded app, kept in one place so a
