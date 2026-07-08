@@ -288,6 +288,14 @@ describe('diagnose', () => {
 			expect(issues[0]!.message).toContain('urls.stagng')
 		})
 
+		it('names the missing urls entry when --env finds no url at all', async () => {
+			respond('{}')
+			const ws = makeWorkspace(root, { dashboard: remote() })
+			const issues = await diagnoseRemotes(ws, 'staging')
+			expect(issues.some(i => i.message.includes('no "urls.staging" or "url"'))).toBe(true)
+			expect(fetch).not.toHaveBeenCalled()
+		})
+
 		it('warns about remotes without a url and skips hosts', async () => {
 			respond('{}')
 			const ws = makeWorkspace(root, {

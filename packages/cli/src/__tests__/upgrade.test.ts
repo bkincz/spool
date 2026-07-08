@@ -153,6 +153,15 @@ describe('upgrade', () => {
 		expect(success).toHaveBeenCalledWith('already up to date')
 	})
 
+	it('aborts outside a workspace', async () => {
+		const outside = freshDir('spool-outside-')
+		process.chdir(outside)
+
+		await expect(upgrade({})).rejects.toThrow('No spool.json')
+		process.chdir(dir)
+		removeDir(outside)
+	})
+
 	it('removes the unsupported rspack bundler from spool.json', async () => {
 		const manifest = readJson('spool.json')
 		manifest.bundler = 'rspack'
