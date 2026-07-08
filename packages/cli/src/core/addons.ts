@@ -5,6 +5,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import * as p from '@clack/prompts'
+import pc from 'picocolors'
 import type { Manifest } from './config.js'
 import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_FILE } from './templates/bridges.js'
@@ -128,7 +129,7 @@ export async function promptAddons(
 	if (!names.length || !process.stdin.isTTY) return []
 
 	const answer = await p.multiselect({
-		message,
+		message: `${message} ${pc.dim('(space selects, enter confirms)')}`,
 		options: names.map(name => ({
 			value: name,
 			label: ADDONS[name].label,

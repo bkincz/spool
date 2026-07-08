@@ -201,7 +201,7 @@ async function resolveInputs(
 async function resolveAddons(opts: CreateOptions, manifest: Manifest): Promise<AddonName[] | null> {
 	if (opts.addons !== undefined) return parseAddonList(opts.addons, manifest)
 	return promptAddons(
-		'Extras to include? (press enter to skip)',
+		'Extras to include?',
 		ADDON_NAMES.filter(name => !ADDONS[name].unavailable(manifest))
 	)
 }
