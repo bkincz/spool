@@ -72,7 +72,9 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state' | 'sentry' | 'shell
 		present: root => existsSync(join(root, 'packages/ui')),
 		files: () => ladleFiles(),
 		allowBuilds: ['@swc/core', 'msw'],
-		notes: m => [`ladle: ${runIn(m, 'ui', 'ladle')} opens the component workshop`],
+		notes: m => [
+			`ladle: \`spool dev\` starts the component workshop with your apps, or ${runIn(m, 'ui', 'ladle')} runs it on its own`,
+		],
 	},
 	playwright: {
 		label: 'Playwright',
