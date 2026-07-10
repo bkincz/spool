@@ -361,6 +361,103 @@ describe('devAll', () => {
 			expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not serving'))
 		)
 	})
+
+	/** Writes a packages/ui with a ladle script so the workshop is detected. */
+	function withLadle(root: string): void {
+		mkdirSync(join(root, 'packages/ui'), { recursive: true })
+		writeFileSync(
+			join(root, 'packages/ui/package.json'),
+			JSON.stringify({ name: 'ui', scripts: { ladle: 'ladle serve' } })
+		)
+	}
+
+	const ladleCall = (): unknown[] | undefined =>
+		vi.mocked(spawnProcess).mock.calls.find(call => (call[1] as string[]).includes('ladle'))
+
+	it('starts the ladle workshop alongside the apps when the addon is set up', async () => {
+		const root = freshDir('spool-ladle-')
+		withLadle(root)
+		const ws = makeWorkspace(root, { dashboard: remote() })
+
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+		const call = ladleCall()
+		expect(call).toBeDefined()
+		expect(call![1]).toEqual(['run', 'ladle'])
+		expect((call![2] as { cwd: string }).cwd).toContain(join('packages', 'ui'))
+		removeDir(root)
+	})
+
+	it('shows the ladle workshop in the ready panel on its served url', async () => {
+		vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const root = freshDir('spool-ladle-panel-')
+		withLadle(root)
+		const ws = makeWorkspace(root, { dashboard: remote() })
+
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+		emitReady(children[0]!, 5174)
+		// Ladle prints no VITE banner, only its own url line.
+		children[1]!.stdout.emit(
+			'data',
+			Buffer.from('🥄 Ladle running at http://localhost:61000/\n')
+		)
+
+		await vi.waitFor(() =>
+			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('dev servers ready'))
+		)
+		const rows = vi.mocked(log.plain).mock.calls.map(call => String(call[0]))
+		const ladleRow = rows.find(row => row.includes('ladle'))!
+		expect(ladleRow).toContain('component workshop')
+		expect(ladleRow).toContain('http://localhost:61000/')
+		removeDir(root)
+	})
+
+	it('keeps the app servers running when the ladle workshop exits', async () => {
+		const root = freshDir('spool-ladle-crash-')
+		withLadle(root)
+		const ws = makeWorkspace(root, { dashboard: remote() })
+
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+		// children[1] is the ladle process (spawned right after the sole remote).
+		children[1]!.emit('exit', 1)
+		await vi.waitFor(() =>
+			expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('ladle stopped'))
+		)
+		expect(killTree).not.toHaveBeenCalled()
+		removeDir(root)
+	})
+
+	it('leaves the workshop out of a narrowed --only run', async () => {
+		const root = freshDir('spool-ladle-only-')
+		withLadle(root)
+		const ws = makeWorkspace(root, {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+
+		void devAll(ws, ['dashboard'])
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+		expect(ladleCall()).toBeUndefined()
+		removeDir(root)
+	})
+
+	it('does not start the workshop in preview', async () => {
+		vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const root = freshDir('spool-ladle-preview-')
+		withLadle(root)
+		mkdirSync(join(root, 'apps/dashboard/dist'), { recursive: true })
+		const ws = makeWorkspace(root, { dashboard: remote() })
+
+		void previewAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+		expect(ladleCall()).toBeUndefined()
+		removeDir(root)
+	})
 })
 
 /*

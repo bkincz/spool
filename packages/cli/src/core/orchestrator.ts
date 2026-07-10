@@ -66,16 +66,25 @@ const ANSI = /\x1B\[[0-9;?]*[a-zA-Z]/g
 
 interface AppStatus {
 	name: string
-	app: AppConfig
+	role: string
+	port: number
+	order: number
+	readyOnUrl: boolean
 	color: (s: string) => string
 	buffer: { line: string; err: boolean }[]
-	/** Trailing partial line of the last chunk; a banner split mid-line must still match. */
 	tail: string
 	dropped: number
 	ready: boolean
 	viteVersion?: string
 	readyMs?: string
 	url?: string
+}
+
+interface TrackMeta {
+	role: string
+	port: number
+	order: number
+	readyOnUrl?: boolean
 }
 
 /** Startup chatter is capped per app; a crash or slow start flushes what is kept. */
@@ -102,7 +111,7 @@ class DevOutput {
 	}
 
 	constructor(
-		private readonly total: number,
+		private total: number,
 		private readonly mode: ServeMode
 	) {
 		this.timer = setTimeout(() => {
@@ -111,10 +120,13 @@ class DevOutput {
 		}, 15_000)
 	}
 
-	track(name: string, app: AppConfig, color: (s: string) => string): AppStatus {
+	track(name: string, meta: TrackMeta, color: (s: string) => string): AppStatus {
 		const status: AppStatus = {
 			name,
-			app,
+			role: meta.role,
+			port: meta.port,
+			order: meta.order,
+			readyOnUrl: meta.readyOnUrl ?? false,
 			color,
 			buffer: [],
 			tail: '',
@@ -123,6 +135,15 @@ class DevOutput {
 		}
 		this.statuses.set(name, status)
 		return status
+	}
+
+	drop(name: string): void {
+		const status = this.statuses.get(name)
+		if (!status) return
+		if (!this.streaming) this.drain(status)
+		this.statuses.delete(name)
+		this.total--
+		this.maybeSummarize()
 	}
 
 	chunk(status: AppStatus, data: Buffer, err: boolean): void {
@@ -156,17 +177,16 @@ class DevOutput {
 		}
 		const local = plain.match(/Local:\s+(http\S+)/)
 		if (local) status.url = local[1]!
+		else if (status.readyOnUrl && status.url === undefined) {
+			const any = plain.match(/https?:\/\/\S+/)
+			if (any) status.url = any[0].replace(/[).,]+$/, '')
+		}
 
-		// vite preview prints no version banner, so the url alone marks ready.
-		const versionSeen = this.mode === 'preview' || status.viteVersion !== undefined
+		const versionSeen =
+			this.mode === 'preview' || status.readyOnUrl || status.viteVersion !== undefined
 		if (versionSeen && status.url !== undefined) status.ready = true
 	}
 
-	/**
-	 * Crash path: the buffered output across ALL apps is the only clue to why
-	 * (a sibling may show the port the crasher collided with), so dump
-	 * everything, the crashing app last where it is easiest to see.
-	 */
 	flushAll(lastName: string): void {
 		if (this.streaming) return
 		const ordered = [...this.statuses.values()].sort((a, b) =>
@@ -192,7 +212,6 @@ class DevOutput {
 		if (this.anchored) {
 			const rows = process.stdout.rows ?? 0
 			this.unanchor()
-			// Park the cursor at the bottom so the shell prompt lands cleanly.
 			process.stdout.write(`${rows ? `\x1b[${rows};1H` : ''}\n`)
 		}
 	}
@@ -235,19 +254,18 @@ class DevOutput {
 	}
 
 	private printSummary(): void {
-		const ordered = [...this.statuses.values()].sort((a, b) =>
-			a.app.type === b.app.type ? 0 : a.app.type === 'host' ? -1 : 1
-		)
+		const ordered = [...this.statuses.values()].sort((a, b) => a.order - b.order)
 
 		// One vite version across apps moves to the footer; a mix stays per row.
-		const versions = new Set(ordered.map(status => status.viteVersion))
+		// Tools like ladle report no version, so they never force the split.
+		const versions = new Set(ordered.map(status => status.viteVersion).filter(Boolean))
 		const sharedVite = versions.size === 1 ? [...versions][0] : undefined
 
 		const cells = ordered.map(status => ({
 			status,
 			name: status.name,
-			role: `${status.app.type} · ${status.app.framework}`,
-			url: status.url ?? `http://localhost:${status.app.port}/`,
+			role: status.role,
+			url: status.url ?? `http://localhost:${status.port}/`,
 			meta: [
 				sharedVite === undefined && status.viteVersion !== undefined
 					? `vite ${status.viteVersion}`
@@ -266,7 +284,6 @@ class DevOutput {
 			meta: Math.max(...cells.map(cell => cell.meta.length)),
 		}
 
-		// The plain row sets the box width; the colored row mirrors it exactly.
 		type Cell = (typeof cells)[number]
 		const segments = (cell: Cell): string[] => [
 			`  ● ${cell.name.padEnd(width.name)}`,
@@ -359,8 +376,9 @@ async function serveAll(ws: Workspace, mode: ServeMode, only?: string[]): Promis
 
 	const remotes = remotesOf(apps)
 	const hosts = hostsOf(apps)
+	const ladle = mode === 'dev' && !only?.length ? detectLadle(ws) : undefined
 	const children: ChildProcess[] = []
-	const output = new DevOutput(apps.length, mode)
+	const output = new DevOutput(apps.length + (ladle ? 1 : 0), mode)
 	let shuttingDown = false
 
 	let reportCrash!: (err: Error) => void
@@ -406,13 +424,64 @@ async function serveAll(ws: Workspace, mode: ServeMode, only?: string[]): Promis
 		children.push(child)
 	}
 
+	const startLadle = (info: LadleProcess, colorIndex: number): void => {
+		const child = spawnProcess(ws.manifest.packageManager, ['run', info.script], {
+			cwd: join(ws.root, info.dir),
+		})
+		const status = output.track(
+			info.name,
+			{ role: 'component workshop', port: info.port, order: 2, readyOnUrl: true },
+			COLORS[colorIndex % COLORS.length]!
+		)
+		child.stdout?.on('data', (d: Buffer) => output.chunk(status, d, false))
+		child.stderr?.on('data', (d: Buffer) => output.chunk(status, d, true))
+		child.on('exit', code => {
+			if (shuttingDown || code === 0 || code === null) return
+			// Ladle is auxiliary: a failed workshop must not take the app servers down.
+			setImmediate(() => {
+				if (shuttingDown) return
+				output.drop(info.name)
+				log.warn(`ladle stopped (exit ${code}). The app servers are still running.`)
+			})
+		})
+		children.push(child)
+	}
+
 	log.step(`starting ${apps.length} app(s), remotes first`)
 
 	remotes.forEach((remote, i) => start(remote, i))
+	if (ladle) startLadle(ladle, apps.length)
 	await Promise.race([Promise.all(remotes.map(waitForRemote)), crashed])
 	hosts.forEach((host, i) => start(host, remotes.length + i))
 
 	await crashed
+}
+
+/*
+ *   LADLE
+ ***************************************************************************************************/
+const LADLE_PORT = 61000
+
+interface LadleProcess {
+	name: string
+	dir: string
+	script: string
+	port: number
+}
+
+function detectLadle(ws: Workspace): LadleProcess | undefined {
+	const dir = 'packages/ui'
+	const pkgPath = join(ws.root, dir, 'package.json')
+	if (!existsSync(pkgPath)) return undefined
+	try {
+		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+			scripts?: Record<string, string>
+		}
+		if (!pkg.scripts?.ladle) return undefined
+	} catch {
+		return undefined
+	}
+	return { name: 'ladle', dir, script: 'ladle', port: LADLE_PORT }
 }
 
 /** Preview serves dist folders; failing up front beats vite's per-app error. */
@@ -474,7 +543,12 @@ function spawnApp(
 		cwd: join(ws.root, app.path),
 	})
 
-	const status = output.track(name, app, color)
+	const meta: TrackMeta = {
+		role: `${app.type} · ${app.framework}`,
+		port: app.port,
+		order: app.type === 'host' ? 0 : 1,
+	}
+	const status = output.track(name, meta, color)
 	child.stdout?.on('data', (d: Buffer) => output.chunk(status, d, false))
 	child.stderr?.on('data', (d: Buffer) => output.chunk(status, d, true))
 	return child
