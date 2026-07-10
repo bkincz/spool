@@ -184,6 +184,7 @@ export interface SpoolAppConfig {
     remotes?: Record<string, string>;
     exposes?: Record<string, string>;
     shared: string[];
+    dts: false;
   };
 }
 
@@ -269,7 +270,9 @@ export function spoolApp(
       }
       remotes[remote] = remoteUrl(remote, target, command);
     }
-    return { server, federation: { name, remotes, shared } };
+    // dts:false: spool types remotes via src/remotes.d.ts, so the federation
+    // DTS archive is redundant and its dev-server download is flaky.
+    return { server, federation: { name, remotes, shared, dts: false } };
   }
 
   return {
@@ -282,6 +285,7 @@ export function spoolApp(
       manifest: true,
       exposes: app.exposes ?? {},
       shared,
+      dts: false,
     },
   };
 }
