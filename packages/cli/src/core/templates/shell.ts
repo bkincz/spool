@@ -13,7 +13,31 @@ export function shellRuntimeFiles(app: AppConfig): FileMap {
 	return {
 		'src/shell/history.ts': historyCore(),
 		[`src/shell/${bindingFile}`]: binding,
+		'src/shell/index.ts': shellBarrel(app),
 	}
+}
+
+function shellBarrel(app: AppConfig): string {
+	const lines = ['export * from "./history";', bindingExport(app.framework)]
+	if (app.type === 'host') {
+		lines.push(
+			remoteExport(app.framework),
+			'export { remotes, type RemoteEntry } from "./remotes";'
+		)
+	}
+	return `${lines.join('\n')}\n`
+}
+
+function bindingExport(framework: Framework): string {
+	return framework === 'svelte'
+		? 'export { location } from "./location";'
+		: 'export { useLocation } from "./use-location";'
+}
+
+function remoteExport(framework: Framework): string {
+	if (framework === 'svelte') return 'export { default as Remote } from "./Remote.svelte";'
+	if (framework === 'vue') return 'export { default as Remote } from "./Remote.vue";'
+	return 'export { Remote } from "./remote";'
 }
 
 /** Host-only files: the remote registry (regenerated when remotes change) and
@@ -51,7 +75,7 @@ export function shellNotes(composed: boolean): string[] {
 		]
 	}
 	return [
-		'shell: import { Remote } from "./shell/remote" to mount a remote by name, plus navigate/useLocation from "./shell/history". Compose them into your host however you like.',
+		'shell: import { Remote, useLocation, navigate } from "@/shell" to mount remotes by name and drive the shared history. Compose them into your host however you like.',
 	]
 }
 
@@ -303,9 +327,7 @@ function routesLiteral(routes: Record<string, string>): string {
 }
 
 function reactShellHost(appName: string, routes: Record<string, string>): string {
-	return `import { navigate, matchRoute } from "./shell/history";
-import { useLocation } from "./shell/use-location";
-import { Remote } from "./shell/remote";
+	return `import { Remote, useLocation, navigate, matchRoute } from "@/shell";
 
 // Map url prefixes to remote names. Edit freely; add persistent regions by
 // rendering <Remote name="..." /> outside the routed <main>.
@@ -338,9 +360,7 @@ export default function App() {
 
 function svelteShellHost(appName: string, routes: Record<string, string>): string {
 	return `<script lang="ts">
-  import { navigate, matchRoute } from "./shell/history";
-  import { location } from "./shell/location";
-  import Remote from "./shell/Remote.svelte";
+  import { Remote, location, navigate, matchRoute } from "@/shell";
 
   const routes: Record<string, string> = ${routesLiteral(routes)};
   $: active = matchRoute($location.pathname, routes);
@@ -368,9 +388,7 @@ function svelteShellHost(appName: string, routes: Record<string, string>): strin
 function vueShellHost(appName: string, routes: Record<string, string>): string {
 	return `<script setup lang="ts">
 import { computed } from "vue";
-import { navigate, matchRoute } from "./shell/history";
-import { useLocation } from "./shell/use-location";
-import Remote from "./shell/Remote.vue";
+import { Remote, useLocation, navigate, matchRoute } from "@/shell";
 
 const routes: Record<string, string> = ${routesLiteral(routes)};
 const location = useLocation();

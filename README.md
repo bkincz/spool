@@ -108,13 +108,15 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 
 - **Ladle**: a react design-system package in `packages/ui` with a component workshop. Open it with `pnpm --filter ui ladle`.
 - **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.
-- **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. Bump the store's `contract` when the state shape changes.
+- **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. The store validates its shape on every change with a plain predicate (no validation library; swap in a zod/valibot/arktype schema if you want one). Bump its `version` and add a `migrate` when the shape changes, and a newer app migrates the shared state in place. Keep changes additive so apps on the old shape still tolerate the new one.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
-- **Shell**: a shared history in `src/shell` (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks. The host starts as an editable routed shell; compose one or many remotes into a view however you like. Back and forward work across remotes, and deep links resolve on load.
+- **Shell**: a shared history (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks, all re-exported from `@/shell` (which maps to `src`). The host starts as an editable routed shell; compose one or many remotes into a view however you like. Back and forward work across remotes, and deep links resolve on load.
 
 Composing remotes is your own code, one region or many, persistent or routed:
 
 ```tsx
+import { Remote, useLocation, navigate, matchRoute } from '@/shell'
+
 const routes = { '/': 'browse', '/search': 'search' }
 const active = matchRoute(useLocation().pathname, routes)
 return (
