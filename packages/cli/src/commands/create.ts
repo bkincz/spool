@@ -75,8 +75,6 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 		return
 	}
 
-	// Default the folder to the workspace name so the `cd <name>` hint at the
-	// end points at the right place.
 	const targetDir = opts.here ? process.cwd() : resolve(process.cwd(), dir ?? inputs.name)
 	if (existsSync(join(targetDir, MANIFEST_FILE))) {
 		fail(
@@ -103,11 +101,13 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 	log.step(
 		`host: ${inputs.host.name} (${inputs.host.framework}) on port ${appPort(manifest, inputs.host.name)}`
 	)
+
 	for (const remote of inputs.remotes) {
 		log.step(
 			`remote: ${remote.name} (${remote.framework}) on port ${appPort(manifest, remote.name)}`
 		)
 	}
+
 	for (const addon of addons) {
 		for (const note of ADDONS[addon].notes(manifest, true)) log.step(note)
 	}
@@ -138,7 +138,7 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
  ***************************************************************************************************/
 async function askText(options: Parameters<typeof p.text>[0]): Promise<string | null> {
 	const answer = await p.text(options)
-	return p.isCancel(answer) ? null : answer.trim()
+	return p.isCancel(answer) ? null : (answer ?? '').trim()
 }
 
 async function resolveInputs(
@@ -149,8 +149,8 @@ async function resolveInputs(
 	let namePrompted = false
 	if (name === undefined && dir) {
 		name = basename(resolve(process.cwd(), dir))
-		// The name was inferred, not typed; blame the right thing.
 		const error = validateName(name, 'workspace name')
+
 		if (error) fail(`${error} (Derived from the folder name; pass --name to override.)`)
 	}
 	if (name === undefined) {
@@ -160,6 +160,7 @@ async function resolveInputs(
 			validate: v => validateName(v, 'workspace name'),
 		})
 		if (answer === null) return null
+
 		name = answer
 		namePrompted = true
 	}
@@ -200,11 +201,6 @@ async function resolveInputs(
 	return { name, host, remotes, packageManager, interactive }
 }
 
-/**
- * Optional extras. --addons ("ladle, playwright" or "none") answers without a
- * prompt; otherwise every TTY run asks, so scripts should pass the flag.
- * Unavailable addons are hidden from the prompt but fail loudly by flag.
- */
 async function resolveAddons(opts: CreateOptions, manifest: Manifest): Promise<AddonName[] | null> {
 	if (opts.addons !== undefined) return parseAddonList(opts.addons, manifest)
 	return promptAddons(
@@ -237,11 +233,6 @@ async function resolveHost(
 	return { name: spec.name, framework }
 }
 
-/**
- * Remote names and frameworks. Each entry accepts "name" or "name:framework".
- * Entries without one fall back to "--framework", and then interactively a select
- * prompt, then the host's framework.
- */
 async function resolveRemotes(
 	opts: CreateOptions,
 	defaultFramework: FrameworkType | undefined,
@@ -314,11 +305,7 @@ async function scaffold(
 	if (sentryDsn) await writeFiles(targetDir, sentryEnvFiles(manifest, sentryDsn))
 }
 
-/**
- * One DSN for the whole workspace: the host reports on the federated page and
- * remotes report when run standalone, all to one project. Only the interactive
- * wizard asks; scripted runs set VITE_SENTRY_DSN in each app's .env themselves.
- */
+// One DSN for the whole workspace
 async function resolveSentryDsn(addons: AddonName[], opts: CreateOptions): Promise<string | null> {
 	if (!addons.includes('sentry') || opts.addons !== undefined || !process.stdin.isTTY) return ''
 
@@ -328,11 +315,11 @@ async function resolveSentryDsn(addons: AddonName[], opts: CreateOptions): Promi
 		validate: validateDsn,
 	})
 	if (p.isCancel(answer)) return null
-	return answer.trim()
+	return (answer ?? '').trim()
 }
 
-export function validateDsn(value: string): string | undefined {
-	const trimmed = value.trim()
+export function validateDsn(value: string | undefined): string | undefined {
+	const trimmed = (value ?? '').trim()
 	if (!trimmed) return undefined
 	if (!/^https?:\/\/[^@\s]+@[^/\s]+\/.+/.test(trimmed)) {
 		return 'That does not look like a Sentry DSN (https://<key>@<host>/<project>). Leave blank to skip.'
