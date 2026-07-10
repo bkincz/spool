@@ -19,8 +19,9 @@ import { host, remote, makeManifest } from './helpers.js'
  *   DSN VALIDATION
  ***************************************************************************************************/
 describe('validateDsn', () => {
-	it('accepts a blank value (skip) and a well-formed DSN', () => {
+	it('accepts a blank or undefined value (skip) and a well-formed DSN', () => {
 		expect(validateDsn('')).toBeUndefined()
+		expect(validateDsn(undefined)).toBeUndefined()
 		expect(validateDsn('https://key@o1.ingest.sentry.io/42')).toBeUndefined()
 	})
 

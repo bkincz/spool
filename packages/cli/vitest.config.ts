@@ -1,7 +1,7 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { defineConfig } from 'vitest/config'
+import { defineConfig, configDefaults } from 'vitest/config'
 
 /*
  *   VITEST CONFIG
@@ -11,6 +11,7 @@ export default defineConfig({
 		globals: true,
 		environment: 'node',
 		include: ['src/**/*.{test,spec}.ts'],
+		exclude: [...configDefaults.exclude, '**/*.integration.test.ts'],
 		setupFiles: ['./src/__tests__/setup.ts'],
 		coverage: {
 			provider: 'v8',

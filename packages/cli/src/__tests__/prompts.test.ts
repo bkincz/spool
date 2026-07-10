@@ -71,6 +71,18 @@ describe('create (interactive)', () => {
 		expect(Object.keys(manifest.apps).sort()).toEqual(['host1', 'one', 'two'])
 	})
 
+	it('scaffolds a host-only workspace when the remotes prompt is left blank', async () => {
+		vi.mocked(p.text)
+			.mockResolvedValueOnce('myapp') // name
+			.mockResolvedValueOnce('shell') // host
+			.mockResolvedValueOnce(undefined as unknown as string) // blank remotes -> clack returns undefined
+
+		await create(undefined, { here: true })
+
+		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
+		expect(Object.keys(manifest.apps)).toEqual(['shell'])
+	})
+
 	it('asks a framework per app and records each choice', async () => {
 		vi.mocked(p.text)
 			.mockResolvedValueOnce('myapp')
@@ -174,6 +186,20 @@ describe('create (interactive)', () => {
 			'VITE_SENTRY_DSN=https://k@o.ingest.sentry.io/1'
 		)
 		expect(readFileSync(join(dir, 'apps/one/.env'), 'utf8')).toContain('VITE_SENTRY_DSN=')
+	})
+
+	it('scaffolds without a .env when the Sentry DSN is left blank', async () => {
+		vi.mocked(p.text)
+			.mockResolvedValueOnce('acme') // name
+			.mockResolvedValueOnce('shell') // host
+			.mockResolvedValueOnce('one') // remotes
+			.mockResolvedValueOnce(undefined as unknown as string) // blank DSN -> clack returns undefined
+		vi.mocked(p.multiselect).mockResolvedValueOnce(['sentry'])
+
+		await create(undefined, { here: true })
+
+		expect(existsSync(join(dir, 'spool.json'))).toBe(true)
+		expect(existsSync(join(dir, 'apps/shell/.env'))).toBe(false)
 	})
 
 	it('asks for addons even in fully flag-driven runs', async () => {
