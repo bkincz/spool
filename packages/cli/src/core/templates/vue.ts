@@ -10,6 +10,7 @@ import {
 	STATE_COUNT_TEXT,
 	STATE_STORE_IMPORT,
 } from './bridges.js'
+import { shellHostApp } from './shell.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
 
 export const vueTemplate: FrameworkTemplate = {
@@ -34,9 +35,9 @@ declare module "*.vue" {
 	remoteTyping: mountContractTyping,
 	sourceFiles: (appName, isHost, refs, extras) => {
 		const files: Record<string, string> = {
-			'src/main.ts': vueMain(),
+			'src/main.ts': vueMain(extras),
 			'src/App.vue': isHost
-				? vueHostApp(appName, refs, extras)
+				? vueHostAppFile(appName, refs, extras)
 				: vueRemoteApp(appName, extras),
 		}
 		if (!isHost) files['src/mount.ts'] = vueMount()
@@ -49,11 +50,21 @@ declare module "*.vue" {
 /*
  *   FILE BUILDERS
  ***************************************************************************************************/
-function vueMain(): string {
-	return `import { createApp } from "vue";
+function vueMain(extras: TemplateExtras): string {
+	if (!extras.sentry) {
+		return `import { createApp } from "vue";
 import App from "./App.vue";
 
 createApp(App).mount("#root");
+`
+	}
+	return `import { createApp } from "vue";
+import App from "./App.vue";
+import { initSentry } from "./sentry";
+
+const app = createApp(App);
+initSentry(app);
+app.mount("#root");
 `
 }
 
@@ -102,6 +113,10 @@ const increment = () =>
   </section>
 </template>
 `
+}
+
+function vueHostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
+	return extras.shell ? shellHostApp('vue', appName, refs) : vueHostApp(appName, refs, extras)
 }
 
 function vueHostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {

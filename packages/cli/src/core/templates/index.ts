@@ -25,9 +25,16 @@ export interface MountHint {
 export interface TemplateExtras {
 	stateExample: boolean
 	uiButton: boolean
+	sentry: boolean
+	shell: boolean
 }
 
-export const NO_EXTRAS: TemplateExtras = { stateExample: false, uiButton: false }
+export const NO_EXTRAS: TemplateExtras = {
+	stateExample: false,
+	uiButton: false,
+	sentry: false,
+	shell: false,
+}
 
 export interface FrameworkTemplate {
 	/** The contract this framework's remotes expose as "./App". */

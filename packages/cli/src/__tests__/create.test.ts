@@ -129,6 +129,12 @@ describe('create', () => {
 		).rejects.toThrow('Unknown framework')
 	})
 
+	it('rejects a host spec with too many colon segments', async () => {
+		await expect(
+			create(dir, { name: 'acme', pm: 'pnpm', host: 'a:b:c', remotes: '', install: false })
+		).rejects.toThrow('Use "name" or "name:framework"')
+	})
+
 	it('scaffolds the requested addons', async () => {
 		await create(dir, {
 			name: 'acme',

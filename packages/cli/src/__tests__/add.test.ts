@@ -65,6 +65,64 @@ describe('add', () => {
 		expect(read('apps/shell/vite.config.ts')).toBe(before)
 	})
 
+	it('regenerates the shell remote registry when a remote joins', async () => {
+		process.chdir(cwd)
+		removeDir(dir)
+		dir = freshDir('spool-add-')
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			addons: 'shell',
+			install: false,
+		})
+		process.chdir(dir)
+
+		await add('checkout', { install: false })
+		expect(read('apps/shell/src/shell/remotes.ts')).toContain('checkout/App')
+	})
+
+	it('prints a mount hint for svelte and vue hosts, for both remote contracts', async () => {
+		for (const fw of ['svelte', 'vue'] as const) {
+			process.chdir(cwd)
+			removeDir(dir)
+			dir = freshDir('spool-add-')
+			await create(dir, {
+				name: 'acme',
+				pm: 'pnpm',
+				host: `shell:${fw}`,
+				remotes: '',
+				install: false,
+			})
+			process.chdir(dir)
+
+			await add('rreact', { install: false, framework: 'react' })
+			await add('rsvelte', { install: false, framework: 'svelte' })
+			expect(existsSync(join(dir, 'apps/rreact'))).toBe(true)
+			expect(existsSync(join(dir, 'apps/rsvelte'))).toBe(true)
+		}
+	})
+
+	it('gives a host the bridge runtime deps when a foreign-framework remote joins', async () => {
+		process.chdir(cwd)
+		removeDir(dir)
+		dir = freshDir('spool-add-')
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell:svelte',
+			remotes: '',
+			install: false,
+		})
+		process.chdir(dir)
+
+		await add('widget', { framework: 'react', install: false })
+		const hostPkg = JSON.parse(read('apps/shell/package.json'))
+		expect(hostPkg.dependencies.react).toBeDefined()
+		expect(hostPkg.devDependencies['@types/react']).toBeDefined()
+	})
+
 	it('restores a missing runtime helper and warns about pre-helper apps', async () => {
 		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, 'spool.vite.ts'))

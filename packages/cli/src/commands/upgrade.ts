@@ -44,7 +44,9 @@ export async function upgrade(opts: UpgradeOptions): Promise<void> {
 			continue
 		}
 
-		const generated = await formatFiles(appConfigFiles(name, app))
+		const generated = await formatFiles(
+			appConfigFiles(name, app, ws.manifest.addons.includes('sentry'))
+		)
 		await writer.replaceGenerated(dir, 'vite.config.ts', generated['vite.config.ts']!, name)
 		if (app.type === 'remote') {
 			await writer.add(dir, 'public/_headers', generated['public/_headers']!, name)

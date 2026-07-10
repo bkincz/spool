@@ -4,6 +4,7 @@
  ***************************************************************************************************/
 import { pascalCase } from '../../util/names.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_IMPORT } from './bridges.js'
+import { shellHostApp } from './shell.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
 
 export const reactTemplate: FrameworkTemplate = {
@@ -16,8 +17,8 @@ export const reactTemplate: FrameworkTemplate = {
 	remoteTyping: name =>
 		`declare module "${name}/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`,
 	sourceFiles: (appName, isHost, refs, extras) => ({
-		'src/main.tsx': mainTsx(),
-		'src/App.tsx': isHost ? hostApp(appName, refs, extras) : remoteApp(appName, extras),
+		'src/main.tsx': mainTsx(extras),
+		'src/App.tsx': isHost ? hostAppFile(appName, refs, extras) : remoteApp(appName, extras),
 	}),
 	bridgeFiles: () => ({}),
 	mountHint,
@@ -26,12 +27,14 @@ export const reactTemplate: FrameworkTemplate = {
 /*
  *   FILE BUILDERS
  ***************************************************************************************************/
-function mainTsx(): string {
-	return `import { StrictMode } from "react";
+function mainTsx(extras: TemplateExtras): string {
+	const sentryImport = extras.sentry ? `import { initSentry } from "./sentry";\n` : ''
+	const sentryCall = extras.sentry ? `initSentry();\n\n` : ''
+	return `${sentryImport}import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
 
-createRoot(document.getElementById("root")!).render(
+${sentryCall}createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
   </StrictMode>,
@@ -56,6 +59,10 @@ function MountRemote({ load }: { load: () => Promise<{ default: (el: HTMLElement
   }, [load]);
   return <div ref={ref} />;
 }`
+
+function hostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
+	return extras.shell ? shellHostApp('react', appName, refs) : hostApp(appName, refs, extras)
+}
 
 function hostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
 	const reactRefs = refs.filter(r => r.contract === 'component')

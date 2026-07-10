@@ -28,6 +28,7 @@ import {
 	type AddonName,
 } from '../core/addons.js'
 import { FRAMEWORK_DEPS } from '../core/versions.js'
+import { sentryEnvFiles } from '../core/templates/sentry.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { installDependencies } from '../core/install.js'
@@ -90,7 +91,13 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 		return
 	}
 	for (const addon of addons) ADDONS[addon].apply?.(manifest)
-	await scaffold(targetDir, manifest, addons)
+
+	const dsn = await resolveSentryDsn(addons, opts)
+	if (dsn === null) {
+		p.cancel('Cancelled.')
+		return
+	}
+	await scaffold(targetDir, manifest, addons, dsn)
 
 	log.success(`scaffolded ${pc.bold(inputs.name)} in ${pc.dim(targetDir)}`)
 	log.step(
@@ -102,7 +109,7 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 		)
 	}
 	for (const addon of addons) {
-		for (const note of ADDONS[addon].notes(manifest)) log.step(note)
+		for (const note of ADDONS[addon].notes(manifest, true)) log.step(note)
 	}
 
 	if (opts.install ?? true) {
@@ -284,7 +291,12 @@ async function resolveFramework(
 	return p.isCancel(answer) ? null : answer
 }
 
-async function scaffold(targetDir: string, manifest: Manifest, addons: AddonName[]): Promise<void> {
+async function scaffold(
+	targetDir: string,
+	manifest: Manifest,
+	addons: AddonName[],
+	sentryDsn: string
+): Promise<void> {
 	const extras = templateExtras(addons)
 	const allowBuilds = addons.flatMap(addon => ADDONS[addon].allowBuilds)
 	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest, allowBuilds)))
@@ -299,6 +311,33 @@ async function scaffold(targetDir: string, manifest: Manifest, addons: AddonName
 			writeFiles(targetDir, await formatFiles(ADDONS[addon].files(manifest, extras)))
 		),
 	])
+	if (sentryDsn) await writeFiles(targetDir, sentryEnvFiles(manifest, sentryDsn))
+}
+
+/**
+ * One DSN for the whole workspace: the host reports on the federated page and
+ * remotes report when run standalone, all to one project. Only the interactive
+ * wizard asks; scripted runs set VITE_SENTRY_DSN in each app's .env themselves.
+ */
+async function resolveSentryDsn(addons: AddonName[], opts: CreateOptions): Promise<string | null> {
+	if (!addons.includes('sentry') || opts.addons !== undefined || !process.stdin.isTTY) return ''
+
+	const answer = await p.text({
+		message: 'Sentry DSN? (blank to set VITE_SENTRY_DSN later)',
+		placeholder: 'https://<key>@<org>.ingest.sentry.io/<project>',
+		validate: validateDsn,
+	})
+	if (p.isCancel(answer)) return null
+	return answer.trim()
+}
+
+export function validateDsn(value: string): string | undefined {
+	const trimmed = value.trim()
+	if (!trimmed) return undefined
+	if (!/^https?:\/\/[^@\s]+@[^/\s]+\/.+/.test(trimmed)) {
+		return 'That does not look like a Sentry DSN (https://<key>@<host>/<project>). Leave blank to skip.'
+	}
+	return undefined
 }
 
 /*
