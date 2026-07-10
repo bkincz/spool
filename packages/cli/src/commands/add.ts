@@ -2,6 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { join } from 'node:path'
+import { readFile, writeFile } from 'node:fs/promises'
 import { requireWorkspace, saveManifest } from '../core/workspace.js'
 import {
 	DEFAULT_FRAMEWORK,
@@ -14,10 +15,11 @@ import {
 } from '../core/config.js'
 import { appFiles, defaultExposes, helperFile, hostWiringFiles } from '../core/generators.js'
 import { TEMPLATES, remoteRef, remoteRefs } from '../core/templates/index.js'
-import { FRAMEWORK_DEPS } from '../core/versions.js'
+import { appDependencies, FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { installDependencies } from '../core/install.js'
+import { type PackageJsonShape } from './upgrade.js'
 import { log, fail } from '../util/logger.js'
 
 /*
@@ -82,6 +84,9 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 		// case the user has edited it.
 		const bridge = TEMPLATES[host.app.framework].bridgeFiles(remoteRefs(manifest, host.app))
 		await writeFiles(join(ws.root, host.app.path), await formatFiles(bridge))
+		// A foreign-framework remote makes the host depend on that framework's
+		// bridge runtime; add the missing deps without touching existing ones.
+		await syncHostDeps(ws.root, manifest, host.app)
 	}
 	await saveManifest(ws)
 	log.success(`added ${type} ${name} on port ${app.port}`)
@@ -119,6 +124,34 @@ function wireIntoHost(manifest: Manifest, remote: string, requested?: string): H
 	if (!app.remotes.includes(remote)) app.remotes.push(remote)
 	log.step(`wired ${remote} into host ${hostName}`)
 	return { name: hostName, app }
+}
+
+async function syncHostDeps(root: string, manifest: Manifest, host: AppConfig): Promise<void> {
+	const expected = appDependencies(manifest, host)
+	const target = join(root, host.path, 'package.json')
+	let pkg: PackageJsonShape
+	try {
+		pkg = JSON.parse(await readFile(target, 'utf8')) as PackageJsonShape
+	} catch {
+		return
+	}
+	pkg.dependencies ??= {}
+	pkg.devDependencies ??= {}
+	let changed = false
+	for (const [section, deps] of [
+		['dependencies', expected.dependencies],
+		['devDependencies', expected.devDependencies],
+	] as const) {
+		for (const [dep, range] of Object.entries(deps)) {
+			if (pkg[section]![dep] === undefined) {
+				pkg[section]![dep] = range
+				changed = true
+			}
+		}
+	}
+	if (!changed) return
+	const formatted = await formatFiles({ 'package.json': `${JSON.stringify(pkg)}\n` })
+	await writeFile(target, formatted['package.json']!, 'utf8')
 }
 
 function resolvePort(manifest: Manifest, requested?: string): number {

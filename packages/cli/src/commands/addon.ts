@@ -13,7 +13,12 @@ import {
 	promptAddons,
 	type AddonName,
 } from '../core/addons.js'
-import { SHARED_EXTRAS } from '../core/versions.js'
+import {
+	SENTRY_SDK,
+	SENTRY_VERSION,
+	SENTRY_VITE_PLUGIN_VERSION,
+	SHARED_EXTRAS,
+} from '../core/versions.js'
 import { yamlKey } from '../core/generators.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
@@ -49,7 +54,7 @@ export async function addon(entries: string[], opts: AddonOptions): Promise<void
 	// leaves at worst unused shared entries, never files with dangling imports.
 	for (const name of names) ADDONS[name].apply?.(ws.manifest)
 	await saveManifest(ws)
-	await declareSharedExtras(ws)
+	await declareAppDeps(ws)
 
 	for (const name of names) {
 		const picked = ADDONS[name]
@@ -57,7 +62,7 @@ export async function addon(entries: string[], opts: AddonOptions): Promise<void
 		const { written } = await writeFiles(ws.root, await formatFiles(picked.files(ws.manifest)))
 		await allowPnpmBuilds(ws, picked.allowBuilds)
 		log.success(`added ${name}${written.length ? '' : ' (files already present, left alone)'}`)
-		for (const note of picked.notes(ws.manifest)) log.step(note)
+		for (const note of picked.notes(ws.manifest, false)) log.step(note)
 	}
 
 	const pm = ws.manifest.packageManager
@@ -93,13 +98,28 @@ async function resolveNames(entries: string[], ws: Workspace): Promise<AddonName
 	return promptAddons('Extras to add?', available)
 }
 
-/** Apps declare every shared extra, or the runtime helper drops the singleton. */
-async function declareSharedExtras(ws: Workspace): Promise<void> {
-	const sharedPackages = new Set(ws.manifest.shared.map(packageName))
-	const wanted = Object.entries(SHARED_EXTRAS).filter(([dep]) => sharedPackages.has(dep))
-	if (!wanted.length) return
+type Section = 'dependencies' | 'devDependencies'
+type WantedDep = [dep: string, range: string, section: Section]
 
+/** Deps an addon adds to existing apps: shared singletons must be declared per
+ * app or federation drops them, and sentry's SDK/plugin aren't shared at all. */
+function wantedAppDeps(ws: Workspace, app: Workspace['manifest']['apps'][string]): WantedDep[] {
+	const sharedPackages = new Set(ws.manifest.shared.map(packageName))
+	const wanted: WantedDep[] = Object.entries(SHARED_EXTRAS)
+		.filter(([dep]) => sharedPackages.has(dep))
+		.map(([dep, range]) => [dep, range, 'dependencies'])
+	if (ws.manifest.addons.includes('sentry')) {
+		wanted.push([SENTRY_SDK[app.framework], SENTRY_VERSION, 'dependencies'])
+		wanted.push(['@sentry/vite-plugin', SENTRY_VITE_PLUGIN_VERSION, 'devDependencies'])
+	}
+	return wanted
+}
+
+async function declareAppDeps(ws: Workspace): Promise<void> {
 	for (const [name, app] of Object.entries(ws.manifest.apps)) {
+		const wanted = wantedAppDeps(ws, app)
+		if (!wanted.length) continue
+
 		const target = join(ws.root, app.path, 'package.json')
 		if (!existsSync(target)) continue
 
@@ -114,9 +134,10 @@ async function declareSharedExtras(ws: Workspace): Promise<void> {
 		}
 
 		pkg.dependencies ??= {}
+		pkg.devDependencies ??= {}
 		const changed: string[] = []
-		for (const [dep, range] of wanted) {
-			const home = dependencyHome(pkg, dep, 'dependencies')
+		for (const [dep, range, section] of wanted) {
+			const home = dependencyHome(pkg, dep, section)
 			if (home[dep] !== range) {
 				changed.push(`${dep} ${home[dep] ?? 'added'} -> ${range}`)
 				home[dep] = range

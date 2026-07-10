@@ -10,6 +10,7 @@ import {
 	STATE_COUNT_TEXT,
 	STATE_STORE_IMPORT,
 } from './bridges.js'
+import { shellHostApp } from './shell.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
 
 export const svelteTemplate: FrameworkTemplate = {
@@ -34,9 +35,9 @@ declare module "*.svelte" {
 	remoteTyping: mountContractTyping,
 	sourceFiles: (appName, isHost, refs, extras) => {
 		const files: Record<string, string> = {
-			'src/main.ts': svelteMain(),
+			'src/main.ts': svelteMain(extras),
 			'src/App.svelte': isHost
-				? svelteHostApp(appName, refs, extras)
+				? svelteHostAppFile(appName, refs, extras)
 				: svelteRemoteApp(appName, extras),
 		}
 		if (!isHost) files['src/mount.ts'] = svelteMount()
@@ -49,11 +50,13 @@ declare module "*.svelte" {
 /*
  *   FILE BUILDERS
  ***************************************************************************************************/
-function svelteMain(): string {
-	return `import { mount } from "svelte";
+function svelteMain(extras: TemplateExtras): string {
+	const sentryImport = extras.sentry ? `import { initSentry } from "./sentry";\n` : ''
+	const sentryCall = extras.sentry ? `initSentry();\n\n` : ''
+	return `${sentryImport}import { mount } from "svelte";
 import App from "./App.svelte";
 
-mount(App, { target: document.getElementById("root")! });
+${sentryCall}mount(App, { target: document.getElementById("root")! });
 `
 }
 
@@ -99,6 +102,12 @@ function svelteRemoteApp(appName: string, extras: TemplateExtras): string {
   <button on:click={increment}>Increment</button>
 </section>
 `
+}
+
+function svelteHostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
+	return extras.shell
+		? shellHostApp('svelte', appName, refs)
+		: svelteHostApp(appName, refs, extras)
 }
 
 function svelteHostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {

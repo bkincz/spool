@@ -3,6 +3,7 @@
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
 import { workspaceFiles, appFiles, hostWiringFiles, ciWorkflows } from '../core/generators.js'
+import { NO_EXTRAS } from '../core/templates/index.js'
 import { parseManifest, type Manifest } from '../core/config.js'
 import { host, remote, makeManifest } from './helpers.js'
 
@@ -474,8 +475,8 @@ describe('appFiles (mount-contract hosts with no remotes)', () => {
  *   APP FILES - STATE EXAMPLE EXTRAS
  ***************************************************************************************************/
 describe('appFiles (state example extras)', () => {
-	const plain = { stateExample: true, uiButton: false }
-	const withUi = { stateExample: true, uiButton: true }
+	const plain = { ...NO_EXTRAS, stateExample: true }
+	const withUi = { ...NO_EXTRAS, stateExample: true, uiButton: true }
 	const m = makeManifest({
 		shell: host({ remotes: ['dash', 'widget', 'vapp'] }),
 		dash: remote({ path: 'apps/dash' }),

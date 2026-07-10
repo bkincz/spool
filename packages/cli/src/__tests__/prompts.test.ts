@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as p from '@clack/prompts'
 import { create } from '../commands/create.js'
@@ -140,6 +140,40 @@ describe('create (interactive)', () => {
 
 		expect(existsSync(join(dir, 'packages/ui/src/Button.stories.tsx'))).toBe(true)
 		expect(existsSync(join(dir, 'packages/e2e/playwright.config.ts'))).toBe(true)
+	})
+
+	it('composes sentry and the shell into the scaffold at create time', async () => {
+		await create(undefined, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			addons: 'sentry, shell',
+			here: true,
+		})
+
+		expect(readFileSync(join(dir, 'apps/shell/src/main.tsx'), 'utf8')).toContain('initSentry()')
+		expect(existsSync(join(dir, 'apps/shell/src/sentry.ts'))).toBe(true)
+		expect(readFileSync(join(dir, 'apps/shell/src/App.tsx'), 'utf8')).toContain('<Remote')
+		expect(existsSync(join(dir, 'apps/shell/src/shell/remotes.ts'))).toBe(true)
+		// A flag-driven run never reaches the interactive DSN step.
+		expect(existsSync(join(dir, 'apps/shell/.env'))).toBe(false)
+	})
+
+	it('writes the Sentry DSN into every app .env when given interactively', async () => {
+		vi.mocked(p.text)
+			.mockResolvedValueOnce('acme') // name
+			.mockResolvedValueOnce('shell') // host
+			.mockResolvedValueOnce('one') // remotes
+			.mockResolvedValueOnce('https://k@o.ingest.sentry.io/1') // DSN
+		vi.mocked(p.multiselect).mockResolvedValueOnce(['sentry'])
+
+		await create(undefined, { here: true })
+
+		expect(readFileSync(join(dir, 'apps/shell/.env'), 'utf8')).toContain(
+			'VITE_SENTRY_DSN=https://k@o.ingest.sentry.io/1'
+		)
+		expect(readFileSync(join(dir, 'apps/one/.env'), 'utf8')).toContain('VITE_SENTRY_DSN=')
 	})
 
 	it('asks for addons even in fully flag-driven runs', async () => {

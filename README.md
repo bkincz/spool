@@ -48,7 +48,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `--host <name>`     | Host app, as `name` or `name:framework`                     |
 | `--remotes <list>`  | Comma-separated remotes, each as `name` or `name:framework` |
 | `--framework <fw>`  | Default framework: `react`, `svelte`, or `vue`              |
-| `--addons <list>`   | Extras: `ladle`, `playwright`, `state`, or `none`           |
+| `--addons <list>`   | Extras: `ladle`, `playwright`, `state`, `sentry`, `shell`, or `none` |
 | `--pm <manager>`    | `pnpm`, `npm`, or `yarn`                                    |
 | `--here`            | Scaffold into the current folder                            |
 | `--no-install`      | Skip the install step                                       |
@@ -104,13 +104,28 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 
 ## Extras
 
-`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, state"`. Missed one? `spool addon` adds it to an existing workspace later.
+`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, state, sentry, shell"`. Missed one? `spool addon` adds it to an existing workspace later.
 
 - **Ladle**: a react design-system package in `packages/ui` with a component workshop. Open it with `pnpm --filter ui ladle`.
 - **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. Bump the store's `contract` when the state shape changes.
+- **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
+- **Shell**: a shared history in `src/shell` (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks. The host starts as an editable routed shell; compose one or many remotes into a view however you like. Back and forward work across remotes, and deep links resolve on load.
 
-Extras picked together at create time compose: with the state addon, remotes render a working counter and the host shows the live shared count, the counter uses the ladle ui button when both are picked, and the Playwright spec gains a test proving a remote's click updates the shell. `spool addon` applies extras plainly, since it never rewrites components you may have edited.
+Composing remotes is your own code, one region or many, persistent or routed:
+
+```tsx
+const routes = { '/': 'browse', '/search': 'search' }
+const active = matchRoute(useLocation().pathname, routes)
+return (
+  <>
+    <Remote name="player" /> {/* always mounted */}
+    {active && <Remote name={active} />} {/* swaps with the url */}
+  </>
+)
+```
+
+Extras picked together at create time compose: with the state addon, remotes render a working counter and the host shows the live shared count, the counter uses the ladle ui button when both are picked, and the Playwright spec gains a test proving a remote's click updates the host. `spool addon` applies extras plainly, since it never rewrites components you may have edited.
 
 ## Deploying
 

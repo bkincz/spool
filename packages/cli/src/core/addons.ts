@@ -9,6 +9,8 @@ import pc from 'picocolors'
 import type { Manifest } from './config.js'
 import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_FILE } from './templates/bridges.js'
+import { sentryFiles, sentryNotes } from './templates/sentry.js'
+import { shellRuntimeFiles, shellHostFiles, shellNotes } from './templates/shell.js'
 import { NODE_RANGE, type FileMap } from './generators.js'
 import { TOOLCHAIN } from './versions.js'
 import { splitList } from '../util/names.js'
@@ -35,11 +37,31 @@ export interface Addon {
 	files(m: Manifest, extras?: TemplateExtras): FileMap
 	/** Dependencies whose postinstall scripts pnpm must allow. */
 	allowBuilds: string[]
-	/** Printed after scaffolding. */
-	notes(m: Manifest): string[]
+	/** Printed after scaffolding. `composed` is true only at create time, where
+	 * the addon wires itself into untouched apps. */
+	notes(m: Manifest, composed: boolean): string[]
 }
 
-export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
+function enableAddon(m: Manifest, name: string): void {
+	if (!m.addons.includes(name)) m.addons.push(name)
+}
+
+function shellFiles(m: Manifest): FileMap {
+	const files: FileMap = {}
+	for (const app of Object.values(m.apps)) {
+		for (const [rel, content] of Object.entries(shellRuntimeFiles(app))) {
+			files[`${app.path}/${rel}`] = content
+		}
+		if (app.type === 'host') {
+			for (const [rel, content] of Object.entries(shellHostFiles(m, app))) {
+				files[`${app.path}/${rel}`] = content
+			}
+		}
+	}
+	return files
+}
+
+export const ADDONS: Record<'ladle' | 'playwright' | 'state' | 'sentry' | 'shell', Addon> = {
 	ladle: {
 		label: 'Ladle',
 		hint: 'design-system package in packages/ui with a component workshop',
@@ -90,6 +112,29 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state', Addon> = {
 			}`,
 		],
 	},
+	sentry: {
+		label: 'Sentry',
+		hint: 'error and performance monitoring wired into every app',
+		unavailable: () => undefined,
+		present: (_root, m) => m.addons.includes('sentry'),
+		apply: m => enableAddon(m, 'sentry'),
+		files: m => sentryFiles(m),
+		allowBuilds: ['@sentry/cli'],
+		notes: (_m, composed) => sentryNotes(composed),
+	},
+	shell: {
+		label: 'Shell',
+		hint: 'a shared history plus a <Remote> primitive to compose remotes into views',
+		unavailable: m =>
+			Object.values(m.apps).some(app => app.type === 'host')
+				? undefined
+				: 'Shell needs a host app to compose remotes into.',
+		present: (_root, m) => m.addons.includes('shell'),
+		apply: m => enableAddon(m, 'shell'),
+		files: shellFiles,
+		allowBuilds: [],
+		notes: (_m, composed) => shellNotes(composed),
+	},
 }
 
 export type AddonName = keyof typeof ADDONS
@@ -100,6 +145,8 @@ export function templateExtras(addons: AddonName[]): TemplateExtras {
 	return {
 		stateExample: addons.includes('state'),
 		uiButton: addons.includes('state') && addons.includes('ladle'),
+		sentry: addons.includes('sentry'),
+		shell: addons.includes('shell'),
 	}
 }
 

@@ -93,6 +93,8 @@ export const ManifestSchema = z
 		bundler: z.enum(['vite']).default('vite'),
 		/** Deps shared as singletons across federation boundary. */
 		shared: z.array(z.string()).default(['react', 'react-dom']),
+		/** Enabled addons whose wiring isn't captured elsewhere in the manifest. */
+		addons: z.array(z.string()).default([]),
 		/** App registry keyed by app name. */
 		apps: z.record(NameSchema, AppSchema).default({}),
 	})

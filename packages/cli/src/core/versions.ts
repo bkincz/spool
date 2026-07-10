@@ -91,6 +91,15 @@ export const SHARED_EXTRAS: Record<string, string> = {
 	'@bkincz/clutch': '^3.2.0',
 }
 
+export const SENTRY_SDK: Record<Framework, string> = {
+	react: '@sentry/react',
+	svelte: '@sentry/svelte',
+	vue: '@sentry/vue',
+}
+
+export const SENTRY_VERSION = '^10.64.0'
+export const SENTRY_VITE_PLUGIN_VERSION = '^5.3.0'
+
 export function appDependencies(
 	m: Manifest,
 	app: AppConfig
@@ -117,6 +126,10 @@ export function appDependencies(
 	const sharedPackages = new Set(m.shared.map(packageName))
 	for (const [dep, range] of Object.entries(SHARED_EXTRAS)) {
 		if (sharedPackages.has(dep)) dependencies[dep] = range
+	}
+	if (m.addons.includes('sentry')) {
+		dependencies[SENTRY_SDK[app.framework]] = SENTRY_VERSION
+		devDependencies['@sentry/vite-plugin'] = SENTRY_VITE_PLUGIN_VERSION
 	}
 	put(COMMON_DEV_DEPS, devDependencies)
 	return { dependencies, devDependencies }
