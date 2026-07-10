@@ -88,7 +88,7 @@ export const COMMON_DEV_DEPS: ToolchainDep[] = [
 ]
 
 export const SHARED_EXTRAS: Record<string, string> = {
-	'@bkincz/clutch': '^3.2.0',
+	'@bkincz/clutch': '^3.3.1',
 }
 
 export const SENTRY_SDK: Record<Framework, string> = {

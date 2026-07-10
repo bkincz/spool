@@ -68,10 +68,12 @@ describe('addon', () => {
 		expect(manifest.shared).toContain('@bkincz/clutch/react')
 
 		for (const app of ['shell', 'dashboard']) {
-			expect(
-				JSON.parse(read(`apps/${app}/package.json`)).dependencies['@bkincz/clutch']
-			).toBeDefined()
-			expect(read(`apps/${app}/src/state/counter.ts`)).toContain("'acme:counter'")
+			const pkg = JSON.parse(read(`apps/${app}/package.json`))
+			expect(pkg.dependencies['@bkincz/clutch']).toBeDefined()
+			const counter = read(`apps/${app}/src/state/counter.ts`)
+			expect(counter).toContain("'acme:counter'")
+			expect(counter).toContain('validate<CounterState>')
+			expect(counter).toContain('version: 1')
 			// Retroactive adds never rewrite app components with the example.
 			expect(read(`apps/${app}/src/App.tsx`)).not.toContain('counterMachine')
 		}

@@ -142,9 +142,10 @@ describe('shell addon', () => {
 
 	it('enables through the manifest without touching apps', () => {
 		const m = build()
+		const appsBefore = structuredClone(m.apps)
 		ADDONS.shell.apply?.(m)
 		expect(m.addons).toContain('shell')
-		expect(m.apps.browse).not.toHaveProperty('route')
+		expect(m.apps).toEqual(appsBefore)
 	})
 
 	it('writes the history substrate everywhere and the registry + primitive on hosts', () => {
@@ -214,14 +215,47 @@ describe('shell addon', () => {
 		expect(hostWiringFiles(m, m.apps.shell!)['src/shell/Remote.svelte']).toContain('mountReact')
 	})
 
-	it('replaces the host app with the starter shell', () => {
+	it('replaces the host app with the starter shell that imports from @/shell', () => {
 		const m = build()
 		const shellHost = appFiles(m, 'shell', m.apps.shell!, { ...NO_EXTRAS, shell: true })[
 			'src/App.tsx'
 		]!
 		expect(shellHost).toContain('matchRoute')
 		expect(shellHost).toContain('<Remote name={active} />')
-		expect(shellHost).toContain('./shell/remote')
+		expect(shellHost).toContain('from "@/shell"')
+	})
+
+	it('barrels the shell: a full api on hosts, just the substrate on remotes', () => {
+		const files = ADDONS.shell.files(build())
+		const hostBarrel = files['apps/shell/src/shell/index.ts']!
+		expect(hostBarrel).toContain('export * from "./history"')
+		expect(hostBarrel).toContain('export { useLocation } from "./use-location"')
+		expect(hostBarrel).toContain('export { Remote } from "./remote"')
+		expect(hostBarrel).toContain('export { remotes, type RemoteEntry } from "./remotes"')
+
+		const remoteBarrel = files['apps/browse/src/shell/index.ts']!
+		expect(remoteBarrel).toContain('export * from "./history"')
+		expect(remoteBarrel).toContain('export { location } from "./location"')
+		expect(remoteBarrel).not.toContain('Remote')
+	})
+
+	it('re-exports the framework component the right way in the barrel', () => {
+		const svelte = ADDONS.shell.files(makeManifest({ shell: host({ framework: 'svelte' }) }))
+		expect(svelte['apps/shell/src/shell/index.ts']).toContain(
+			'export { default as Remote } from "./Remote.svelte"'
+		)
+		const vue = ADDONS.shell.files(makeManifest({ shell: host({ framework: 'vue' }) }))
+		expect(vue['apps/shell/src/shell/index.ts']).toContain(
+			'export { default as Remote } from "./Remote.vue"'
+		)
+	})
+
+	it('wires the @ alias into every app tsconfig and vite config', () => {
+		const files = appFiles(build(), 'shell', build().apps.shell!)
+		const tsconfig = JSON.parse(files['tsconfig.json']!)
+		expect(tsconfig.compilerOptions.baseUrl).toBe('.')
+		expect(tsconfig.compilerOptions.paths['@/*']).toEqual(['./src/*'])
+		expect(files['vite.config.ts']).toContain('alias: { "@": resolvePath(import.meta.dirname')
 	})
 
 	it('has distinct notes for create and retroactive add', () => {

@@ -184,6 +184,7 @@ export interface SpoolAppConfig {
     remotes?: Record<string, string>;
     exposes?: Record<string, string>;
     shared: string[];
+    dts: false;
   };
 }
 
@@ -269,7 +270,9 @@ export function spoolApp(
       }
       remotes[remote] = remoteUrl(remote, target, command);
     }
-    return { server, federation: { name, remotes, shared } };
+    // dts:false: spool types remotes via src/remotes.d.ts, so the federation
+    // DTS archive is redundant and its dev-server download is flaky.
+    return { server, federation: { name, remotes, shared, dts: false } };
   }
 
   return {
@@ -282,6 +285,7 @@ export function spoolApp(
       manifest: true,
       exposes: app.exposes ?? {},
       shared,
+      dts: false,
     },
   };
 }
@@ -461,11 +465,15 @@ function sortKeys(record: Record<string, string>): Record<string, string> {
 
 function appTsConfig(framework: Framework): string {
 	// Compiler options like the JSX runtime are per app, so one framework's
-	// settings never leak into another's through the shared base config.
-	const compilerOptions = TEMPLATES[framework].compilerOptions
+	// settings never leak into another's through the shared base config. `@`
+	// maps to src (matched by the vite alias) so apps import from "@/...".
 	return json({
 		extends: '../../tsconfig.base.json',
-		...(Object.keys(compilerOptions).length ? { compilerOptions } : {}),
+		compilerOptions: {
+			...TEMPLATES[framework].compilerOptions,
+			baseUrl: '.',
+			paths: { '@/*': ['./src/*'] },
+		},
 		include: ['src', 'vite.config.ts'],
 	})
 }
@@ -475,6 +483,7 @@ function viteConfig(appName: string, app: AppConfig, sentry: boolean): string {
 	const sentryPlugin = sentry ? sentryVitePlugin() : undefined
 	const imports = [
 		'import { defineConfig } from "vite";',
+		'import { resolve as resolvePath } from "node:path";',
 		plugin.importLine,
 		'import { federation } from "@module-federation/vite";',
 		...(sentryPlugin ? [sentryPlugin.importLine] : []),
@@ -495,6 +504,7 @@ export default defineConfig(({ command }) => {
   return {
     server: app.server,
     preview: app.server,
+    resolve: { alias: { "@": resolvePath(import.meta.dirname, "src") } },
     plugins: [${plugins.join(', ')}],
     // Module Federation needs top-level await; lock the build target.
     build: { target: "esnext", minify: false${sentry ? ', sourcemap: true' : ''} },
