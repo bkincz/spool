@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.3.4
+
+Every federation share is now emitted with `singleton: true`. Duplicated
+react across host and remotes breaks hooks, workspace packages carry
+module-level state that must resolve to one copy, and non-singleton
+workspace shares crash apps at boot in dev through a
+@module-federation/vite bug: the generated loadShare module references
+__mfLocalShare without importing it. Existing workspaces pick the fix up
+with `spool upgrade`.
+
 ## 2.2.0
 
 Added `spool preview`: serves every app's production build locally, remotes

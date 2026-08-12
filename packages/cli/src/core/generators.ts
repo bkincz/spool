@@ -183,7 +183,7 @@ export interface SpoolAppConfig {
     manifest?: boolean;
     remotes?: Record<string, string>;
     exposes?: Record<string, string>;
-    shared: string[];
+    shared: Record<string, { singleton: boolean }>;
     dts: false;
   };
 }
@@ -257,7 +257,14 @@ export function spoolApp(
   const app = manifest.apps[name];
   if (!app) throw new Error('spool.vite: no app named "' + name + '" in spool.json');
 
-  const shared = declaredShared(from, manifest.shared ?? []);
+  // Singleton for every share: duplicated react breaks hooks, and workspace
+  // packages often carry module-level state that must resolve to one copy.
+  // Non-singleton workspace shares also hit a @module-federation/vite dev bug
+  // where the generated loadShare module references __mfLocalShare without
+  // importing it, crashing the app at boot.
+  const shared = Object.fromEntries(
+    declaredShared(from, manifest.shared ?? []).map(dep => [dep, { singleton: true }])
+  );
   // cors covers dev and vite preview, where hosts fetch remotes cross-origin.
   const server = { port: app.port, strictPort: true, cors: true };
 
