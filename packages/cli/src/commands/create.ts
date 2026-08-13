@@ -157,7 +157,7 @@ async function resolveInputs(
 		const answer = await askText({
 			message: 'Workspace name?',
 			placeholder: 'acme-frontend',
-			validate: v => validateName(v, 'workspace name'),
+			validate: v => validateName(v ?? '', 'workspace name'),
 		})
 		if (answer === null) return null
 
@@ -222,7 +222,7 @@ async function resolveHost(
 		const raw = await askText({
 			message: 'Host (shell) app name?',
 			initialValue: 'shell',
-			validate: v => validateSpec(v, 'host name'),
+			validate: v => validateSpec(v ?? '', 'host name'),
 		})
 		if (raw === null) return null
 		spec = parseSpec(raw, 'host name')
@@ -245,7 +245,7 @@ async function resolveRemotes(
 			message: 'Remote app names? (comma separated, add :framework to mix)',
 			placeholder: 'dashboard, profile:vue',
 			initialValue: 'dashboard',
-			validate: validateRemoteList,
+			validate: v => validateRemoteList(v ?? ''),
 		}))
 	if (raw === null) return null
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0
+
+Dependency release. zod 3 to 4, @clack/prompts 0.7 to 1, commander 12 to 15.
+The CLI compiles with TypeScript 7; the workspace tooling stays on 6, which is
+the newest typescript-eslint supports. `spool.json` accepts exactly what it
+accepted before; `url` and `urls` now validate through zod 4's `z.url()`.
+
+@clack/prompts 1 widened `validate` to receive `string | undefined`, and the
+name validators called `.trim()` on it. An empty submit in `spool create` now
+reports a validation message instead of throwing.
+
 ## 2.3.4
 
 Every federation share is now emitted with `singleton: true`. Duplicated
