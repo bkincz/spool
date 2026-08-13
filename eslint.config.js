@@ -18,11 +18,22 @@ export default defineConfig([
 				'error',
 				{ argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
 			],
-			'prefer-const': 'error',
+			'@typescript-eslint/no-explicit-any': 'warn',
+			'@typescript-eslint/consistent-type-imports': [
+				'error',
+				{ fixStyle: 'inline-type-imports' },
+			],
+			'prefer-const': ['error', { ignoreReadBeforeAssign: true }],
 			'no-var': 'error',
 			eqeqeq: ['error', 'always'],
 			'no-duplicate-imports': 'error',
 			'prefer-template': 'error',
+		},
+	},
+	{
+		files: ['packages/*/src/**/__tests__/**/*.ts'],
+		rules: {
+			'@typescript-eslint/no-explicit-any': 'off',
 		},
 	},
 ])

@@ -27,7 +27,7 @@ interface HelperModule {
 			manifest?: boolean
 			remotes?: Record<string, string>
 			exposes?: Record<string, string>
-			shared: string[]
+			shared: Record<string, { singleton: boolean }>
 		}
 	}
 }
@@ -59,13 +59,13 @@ function plantDeclaredDeps(root: string, deps: string[]) {
 	)
 }
 
-// The template is just a string to the CLI's compiler. Compiling and
-// importing it here is what actually parses and executes it.
 beforeAll(async () => {
 	dir = freshDir('spool-helper-')
 	plantDeclaredDeps(dir, ['react', 'react-dom'])
+
 	const source = workspaceFiles(manifest)[HELPER_FILE]!
 	const { code } = await transform(source, { loader: 'ts', format: 'esm' })
+
 	writeFileSync(join(dir, 'spool.vite.mjs'), code)
 	writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
 	helper = (await import(pathToFileURL(join(dir, 'spool.vite.mjs')).href)) as HelperModule
@@ -89,8 +89,19 @@ describe('generated spool.vite.ts', () => {
 		expect(app.server).toEqual({ port: 5173, strictPort: true, cors: true })
 		expect(app.federation.name).toBe('shell')
 		expect(app.federation.remotes?.dashboard).toBe('http://localhost:5174/mf-manifest.json')
-		expect(app.federation.shared).toEqual(['react', 'react-dom'])
+		expect(app.federation.shared).toEqual({
+			react: { singleton: true },
+			'react-dom': { singleton: true },
+		})
 		expect(app.federation.filename).toBeUndefined()
+	})
+
+	it('marks every share singleton', () => {
+		const app = helper.spoolApp('shell', dir)
+		expect(Object.keys(app.federation.shared)).not.toHaveLength(0)
+		for (const config of Object.values(app.federation.shared)) {
+			expect(config).toEqual({ singleton: true })
+		}
 	})
 
 	it("uses a remote's deployed url for production builds", () => {
@@ -135,6 +146,7 @@ describe('generated spool.vite.ts', () => {
 		expect(app.federation.filename).toBe('remoteEntry.js')
 		expect(app.federation.exposes).toEqual({ './App': './src/App.tsx' })
 		expect(app.federation.remotes).toBeUndefined()
+
 		// Without this flag, production builds never emit mf-manifest.json and
 		// deployed hosts cannot resolve the remote.
 		expect(app.federation.manifest).toBe(true)
@@ -160,7 +172,7 @@ describe('generated spool.vite.ts', () => {
 		writeFileSync(join(bare, 'spool.json'), JSON.stringify(manifest))
 
 		const app = helper.spoolApp('shell', bare)
-		expect(app.federation.shared).toEqual(['react'])
+		expect(app.federation.shared).toEqual({ react: { singleton: true } })
 		removeDir(bare)
 	})
 
@@ -171,7 +183,7 @@ describe('generated spool.vite.ts', () => {
 		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
 		const app = helper.spoolApp('shell', broken)
-		expect(app.federation.shared).toEqual([])
+		expect(app.federation.shared).toEqual({})
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('package.json'))
 
 		warn.mockRestore()

@@ -70,15 +70,15 @@ export const AppSchema = z
 		/** Dev server port. */
 		port: z.number().int().positive().max(65535),
 		/** Deployed manifest URL of a remote, used by host production builds. */
-		url: z.string().url().optional(),
+		url: z.url().optional(),
 		/** Per-environment manifest URLs; `--env <name>` on build selects one. */
-		urls: z.record(z.string().url()).optional(),
+		urls: z.record(z.string(), z.url()).optional(),
 		/** Shell command `spool deploy` runs in the app folder. */
 		deploy: z.string().optional(),
 		/** Remotes a host consumes (names referencing other apps). */
 		remotes: z.array(z.string()).default([]),
 		/** Modules a remote exposes: exposeKey -> source path. */
-		exposes: z.record(z.string()).default({}),
+		exposes: z.record(z.string(), z.string()).default({}),
 	})
 	.strict()
 export type AppConfig = z.infer<typeof AppSchema>

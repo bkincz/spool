@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.4.0
+
+Dependency release. zod 3 to 4, @clack/prompts 0.7 to 1, commander 12 to 15.
+The CLI compiles with TypeScript 7; the workspace tooling stays on 6, which is
+the newest typescript-eslint supports. `spool.json` accepts exactly what it
+accepted before; `url` and `urls` now validate through zod 4's `z.url()`.
+
+@clack/prompts 1 widened `validate` to receive `string | undefined`, and the
+name validators called `.trim()` on it. An empty submit in `spool create` now
+reports a validation message instead of throwing.
+
+## 2.3.4
+
+Every federation share is now emitted with `singleton: true`. Duplicated
+react across host and remotes breaks hooks, workspace packages carry
+module-level state that must resolve to one copy, and non-singleton
+workspace shares crash apps at boot in dev through a
+@module-federation/vite bug: the generated loadShare module references
+__mfLocalShare without importing it. Existing workspaces pick the fix up
+with `spool upgrade`.
+
 ## 2.2.0
 
 Added `spool preview`: serves every app's production build locally, remotes

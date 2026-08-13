@@ -2,18 +2,21 @@ name: CI
 
 on:
     push:
-        branches: [master, main, develop]
+        branches: [main]
     pull_request:
         branches: [master, main, develop]
+
+permissions:
+    contents: read
 
 jobs:
     test:
         name: Test
         runs-on: ${{ matrix.os }}
         strategy:
+            fail-fast: false
             matrix:
                 os: [ubuntu-latest, windows-latest]
-                # 22 is the oldest supported line (engines: >=22.12.0).
                 node-version: [22, 24]
 
         steps:
@@ -41,12 +44,11 @@ jobs:
             - name: Format check
               run: pnpm run format:check
 
-            # Coverage runs the whole suite; no separate test run needed.
             - name: Test (with coverage)
               run: pnpm run test:coverage
 
             - name: Upload coverage to Codecov
-              if: matrix.os == 'ubuntu-latest'
+              if: matrix.os == 'ubuntu-latest' && matrix.node-version == 24
               uses: codecov/codecov-action@v7
               with:
                   token: ${{ secrets.CODECOV_TOKEN }}
@@ -84,8 +86,6 @@ jobs:
                   path: packages/cli/dist
                   retention-days: 7
 
-    # Scaffold a real workspace with the built CLI, install, and build it.
-    # Catches upstream vite/plugin releases that break new workspaces.
     smoke:
         name: Smoke (scaffold + install + build)
         runs-on: ${{ matrix.os }}
@@ -122,17 +122,12 @@ jobs:
               working-directory: ${{ runner.temp }}/smoke
               run: node "$GITHUB_WORKSPACE/packages/cli/dist/index.js" add widget --framework svelte --no-install
 
-            # The scaffold pins the CLI's own version, which is not on npm yet
-            # for unreleased builds; point it at the local package so the smoke
-            # always exercises the code under review.
             - name: Link the local CLI into the scaffold
               shell: bash
               working-directory: ${{ runner.temp }}/smoke
               run: |
                   node -e 'const fs=require("fs");const pkg=JSON.parse(fs.readFileSync("package.json","utf8"));pkg.devDependencies["@bkincz/spool"]="file:"+process.env.GITHUB_WORKSPACE.replaceAll("\\","/")+"/packages/cli";fs.writeFileSync("package.json",JSON.stringify(pkg,null,"\t")+"\n");'
 
-            # A fresh scaffold has no lockfile, and pnpm defaults to
-            # --frozen-lockfile on CI, which errors when the lockfile is absent.
             - name: Install workspace dependencies
               shell: bash
               working-directory: ${{ runner.temp }}/smoke
@@ -153,7 +148,6 @@ jobs:
               working-directory: ${{ runner.temp }}/smoke
               run: node "$GITHUB_WORKSPACE/packages/cli/dist/index.js" build
 
-            # Generated files must already satisfy the .prettierrc we ship.
             - name: Check generated formatting
               shell: bash
               working-directory: ${{ runner.temp }}/smoke

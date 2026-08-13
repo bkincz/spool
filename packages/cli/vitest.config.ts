@@ -10,9 +10,11 @@ export default defineConfig({
 	test: {
 		globals: true,
 		environment: 'node',
+		setupFiles: ['./src/__tests__/setup.ts'],
 		include: ['src/**/*.{test,spec}.ts'],
 		exclude: [...configDefaults.exclude, '**/*.integration.test.ts'],
-		setupFiles: ['./src/__tests__/setup.ts'],
+		clearMocks: true,
+		restoreMocks: true,
 		coverage: {
 			provider: 'v8',
 			reporter: ['text', 'json', 'html', 'lcov'],
