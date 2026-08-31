@@ -31,6 +31,7 @@ import { FRAMEWORK_DEPS } from '../core/versions.js'
 import { sentryEnvFiles } from '../core/templates/sentry.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
+import { Provenance } from '../core/provenance.js'
 import { installDependencies } from '../core/install.js'
 import { splitList } from '../util/names.js'
 import { log, fail } from '../util/logger.js'
@@ -115,13 +116,14 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 	if (opts.install ?? true) {
 		const spinner = p.spinner()
 		spinner.start(`Installing dependencies with ${manifest.packageManager}`)
+
 		const installed = await installDependencies(manifest.packageManager, targetDir)
 		spinner.stop(
 			installed
 				? 'Dependencies installed.'
 				: pc.yellow(
-						`Install failed. Run \`${manifest.packageManager} install\` in the new folder to finish setup.`
-					)
+					`Install failed. Run \`${manifest.packageManager} install\` in the new folder to finish setup.`
+				)
 		)
 	} else {
 		log.step(
@@ -138,6 +140,7 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
  ***************************************************************************************************/
 async function askText(options: Parameters<typeof p.text>[0]): Promise<string | null> {
 	const answer = await p.text(options)
+
 	return p.isCancel(answer) ? null : (answer ?? '').trim()
 }
 
@@ -147,12 +150,14 @@ async function resolveInputs(
 ): Promise<CreateInputs | null> {
 	let name = opts.name
 	let namePrompted = false
+
 	if (name === undefined && dir) {
 		name = basename(resolve(process.cwd(), dir))
 		const error = validateName(name, 'workspace name')
 
 		if (error) fail(`${error} (Derived from the folder name; pass --name to override.)`)
 	}
+
 	if (name === undefined) {
 		const answer = await askText({
 			message: 'Workspace name?',
@@ -164,6 +169,7 @@ async function resolveInputs(
 		name = answer
 		namePrompted = true
 	}
+
 	ensureValid(name, 'workspace name')
 
 	const interactive = namePrompted || opts.host === undefined || opts.remotes === undefined
@@ -290,19 +296,31 @@ async function scaffold(
 ): Promise<void> {
 	const extras = templateExtras(addons)
 	const allowBuilds = addons.flatMap(addon => ADDONS[addon].allowBuilds)
-	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest, allowBuilds)))
+	const provenance = Provenance.load(targetDir)
+
+	await writeFiles(targetDir, await formatFiles(workspaceFiles(manifest, allowBuilds)), {
+		provenance,
+	})
 	await Promise.all([
 		...Object.entries(manifest.apps).map(async ([name, app]) =>
 			writeFiles(
 				join(targetDir, app.path),
-				await formatFiles(appFiles(manifest, name, app, extras))
+				await formatFiles(appFiles(manifest, name, app, extras)),
+				{ provenance }
 			)
 		),
 		...addons.map(async addon =>
-			writeFiles(targetDir, await formatFiles(ADDONS[addon].files(manifest, extras)))
+			writeFiles(targetDir, await formatFiles(ADDONS[addon].files(manifest, extras)), {
+				provenance,
+			})
 		),
 	])
-	if (sentryDsn) await writeFiles(targetDir, sentryEnvFiles(manifest, sentryDsn))
+
+	if (sentryDsn) {
+		await writeFiles(targetDir, sentryEnvFiles(manifest, sentryDsn), { provenance })
+	}
+
+	await provenance.save()
 }
 
 // One DSN for the whole workspace
@@ -315,15 +333,18 @@ async function resolveSentryDsn(addons: AddonName[], opts: CreateOptions): Promi
 		validate: validateDsn,
 	})
 	if (p.isCancel(answer)) return null
+
 	return (answer ?? '').trim()
 }
 
 export function validateDsn(value: string | undefined): string | undefined {
 	const trimmed = (value ?? '').trim()
 	if (!trimmed) return undefined
+
 	if (!/^https?:\/\/[^@\s]+@[^/\s]+\/.+/.test(trimmed)) {
 		return 'That does not look like a Sentry DSN (https://<key>@<host>/<project>). Leave blank to skip.'
 	}
+
 	return undefined
 }
 
@@ -383,16 +404,22 @@ function readSpec(value: string, label: string): { spec: ParsedSpec } | { error:
 	if (parts.length > 2) {
 		return { error: `Invalid ${label} "${value}". Use "name" or "name:framework".` }
 	}
+
 	const nameError = validateName(parts[0]!, label)
+
 	if (nameError) return { error: nameError }
+
 	if (parts[1] === undefined) return { spec: { name: parts[0]! } }
+
 	const frameworkError = validateFramework(parts[1])
 	if (frameworkError) return { error: frameworkError }
+
 	return { spec: { name: parts[0]!, framework: Framework.parse(parts[1]) } }
 }
 
 function parseSpec(raw: string, label: string): ParsedSpec {
 	const result = readSpec(raw, label)
+
 	if ('error' in result) fail(result.error)
 	return result.spec
 }
@@ -407,5 +434,6 @@ function validateRemoteList(value: string): string | undefined {
 		const error = validateSpec(remote, 'remote name')
 		if (error) return error
 	}
+	
 	return undefined
 }

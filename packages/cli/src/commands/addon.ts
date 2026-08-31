@@ -23,7 +23,7 @@ import { yamlKey } from '../core/generators.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { installDependencies } from '../core/install.js'
-import { dependencyHome, type PackageJsonShape } from './upgrade.js'
+import { dependencyHome, type PackageJsonShape } from '../core/packages.js'
 import { packageName } from '../util/names.js'
 import { log } from '../util/logger.js'
 

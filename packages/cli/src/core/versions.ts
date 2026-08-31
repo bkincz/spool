@@ -41,7 +41,7 @@ export const TOOLCHAIN = {
 	'@types/node': '^26.0.0',
 	'@module-federation/vite': '^1.16.0',
 	'@vitejs/plugin-react': '^6.0.0',
-	typescript: '^5.6.3',
+	typescript: '^6.0.3',
 	vite: '^8.0.0',
 } as const
 
@@ -88,7 +88,7 @@ export const COMMON_DEV_DEPS: ToolchainDep[] = [
 ]
 
 export const SHARED_EXTRAS: Record<string, string> = {
-	'@bkincz/clutch': '^3.3.1',
+	'@bkincz/clutch': '^3.5.0',
 }
 
 export const SENTRY_SDK: Record<Framework, string> = {
@@ -99,6 +99,14 @@ export const SENTRY_SDK: Record<Framework, string> = {
 
 export const SENTRY_VERSION = '^10.64.0'
 export const SENTRY_VITE_PLUGIN_VERSION = '^5.3.0'
+
+export function rootDevDependencies(): Record<string, string> {
+	return {
+		typescript: TOOLCHAIN.typescript,
+		'@types/node': TOOLCHAIN['@types/node'],
+		'@bkincz/spool': `^${CLI_VERSION}`,
+	}
+}
 
 export function appDependencies(
 	m: Manifest,

@@ -66,6 +66,7 @@ program
 	.command('remove <name>')
 	.description('Remove an app from the workspace and unwire it from hosts')
 	.option('--files', 'also delete the app folder')
+	.option('--yes', 'with --files, delete without asking')
 	.action(remove)
 
 program
@@ -104,6 +105,8 @@ program
 	.command('upgrade')
 	.description('Regenerate spool-owned files and sync the toolchain to this CLI version')
 	.option('--dry-run', 'report what would change without writing')
+	.option('--pin', "write this CLI's dependency ranges even when the workspace is ahead")
+	.option('--force', 'overwrite generated files that have local changes, without asking')
 	.action(upgrade)
 
 program
@@ -111,6 +114,8 @@ program
 	.description('Check ports, app folders, federation wiring and shared deps')
 	.option('--remote', 'also fetch each deployed remote url')
 	.option('--env <name>', "check each remote's urls.<name> instead of url")
+	.option('--fix', 'apply the dependency fixes doctor can make safely')
+	.option('--dry-run', 'with --fix, report what would change without writing')
 	.action(doctor)
 
 /*
