@@ -4,7 +4,7 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Workspace } from './workspace.js'
-import { HELPER_FILE, type Manifest } from './config.js'
+import { HELPER_FILE, type Framework, type Manifest } from './config.js'
 import { FRAMEWORK_DEPS } from './versions.js'
 import { readPackageJson } from './packages.js'
 import { resolveRanges, type RangeInfo } from './ranges.js'
@@ -172,53 +172,76 @@ function collectSharedRanges(
 ): SharedRanges {
 	const sharedPackages = [...new Set(ws.manifest.shared.map(packageName))]
 	const ranges: SharedRanges = new Map()
+
 	for (const [name, app] of Object.entries(ws.manifest.apps)) {
-		const pkg = readPackageJson(join(ws.root, app.path, 'package.json'))
+		const deps = declaredRanges(ws, name, app.path, issues)
 
-		if (pkg === 'missing') continue
-		if (pkg === 'invalid') {
-			issues.push(warn(name, 'Its package.json could not be parsed; shared deps unchecked.'))
-			continue
-		}
+		if (!deps) continue
 
-		const deps = { ...pkg.dependencies, ...pkg.devDependencies }
-		// Another framework's runtime is expected to be absent; anything else
-		// missing means the runtime helper silently drops the singleton for
-		// this app and it bundles a private copy.
-		const foreignRuntimes = new Set<string>(
-			Object.entries(FRAMEWORK_DEPS)
-				.filter(([framework]) => framework !== app.framework)
-				.flatMap(([, frameworkDeps]) => frameworkDeps.dependencies)
-		)
+		const foreign = foreignRuntimes(app.framework)
 
 		for (const dep of sharedPackages) {
 			const range = deps[dep]
-			if (!range) {
-				if (!foreignRuntimes.has(dep)) {
-					const target = targets.get(dep)?.target
-					const writes: DepWrite[] =
-						target === undefined ? [] : [{ app: name, dep, range: target }]
 
-					issues.push(
-						warn(
-							name,
-							`Shared dep "${dep}" is not in its package.json dependencies.`,
-							writes.length ? { kind: 'set-deps', writes } : undefined
-						)
-					)
-				}
+			if (range === undefined) {
+				if (!foreign.has(dep)) issues.push(missingShared(name, dep, targets))
 				continue
 			}
 
-			const byRange = ranges.get(dep) ?? new Map<string, string[]>()
-
-			byRange.set(range, [...(byRange.get(range) ?? []), name])
-			ranges.set(dep, byRange)
+			recordRange(ranges, dep, range, name)
 		}
 	}
+
 	return ranges
 }
 
+function declaredRanges(
+	ws: Workspace,
+	name: string,
+	path: string,
+	issues: Diagnostic[]
+): Record<string, string> | undefined {
+	const pkg = readPackageJson(join(ws.root, path, 'package.json'))
+
+	if (pkg === 'missing') return undefined
+	if (pkg === 'invalid') {
+		issues.push(warn(name, 'Its package.json could not be parsed; shared deps unchecked.'))
+		return undefined
+	}
+
+	return { ...pkg.dependencies, ...pkg.devDependencies }
+}
+
+/**
+ * Another framework's runtime is expected to be absent. Anything else missing
+ * means the runtime helper silently drops the singleton for this app and it
+ * bundles a private copy.
+ */
+function foreignRuntimes(framework: Framework): Set<string> {
+	return new Set(
+		Object.entries(FRAMEWORK_DEPS)
+			.filter(([name]) => name !== framework)
+			.flatMap(([, deps]) => deps.dependencies)
+	)
+}
+
+function missingShared(app: string, dep: string, targets: Map<string, RangeInfo>): Diagnostic {
+	const target = targets.get(dep)?.target
+	const writes: DepWrite[] = target === undefined ? [] : [{ app, dep, range: target }]
+
+	return warn(
+		app,
+		`Shared dep "${dep}" is not in its package.json dependencies.`,
+		writes.length ? { kind: 'set-deps', writes } : undefined
+	)
+}
+
+function recordRange(ranges: SharedRanges, dep: string, range: string, app: string): void {
+	const byRange = ranges.get(dep) ?? new Map<string, string[]>()
+
+	byRange.set(range, [...(byRange.get(range) ?? []), app])
+	ranges.set(dep, byRange)
+}
 /**
  * Every framework in use needs its runtime in `shared`, or each of its apps
  * bundles a private copy and the singleton promise quietly breaks.

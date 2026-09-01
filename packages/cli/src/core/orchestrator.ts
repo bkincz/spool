@@ -364,6 +364,7 @@ export function previewAll(ws: Workspace, only?: string[]): Promise<void> {
 
 async function serveAll(ws: Workspace, mode: ServeMode, only?: string[]): Promise<void> {
 	const apps = selectApps(ws, only)
+
 	if (!apps.length) {
 		log.warn('No apps to run.')
 		return
@@ -379,84 +380,114 @@ async function serveAll(ws: Workspace, mode: ServeMode, only?: string[]): Promis
 	const remotes = remotesOf(apps)
 	const hosts = hostsOf(apps)
 	const ladle = mode === 'dev' && !only?.length ? detectLadle(ws) : undefined
-	const children: ChildProcess[] = []
-	const output = new DevOutput(apps.length + (ladle ? 1 : 0), mode)
-	let shuttingDown = false
+	const session = new ServeSession(ws, mode, new DevOutput(apps.length + (ladle ? 1 : 0), mode))
 
-	let reportCrash!: (err: Error) => void
-	const crashed = new Promise<never>((_, reject) => {
-		reportCrash = reject
-	})
+	session.trapSignals()
+	log.step(`starting ${apps.length} app(s), remotes first`)
 
-	const stopAll = (): void => {
-		if (shuttingDown) return
-		shuttingDown = true
-		output.dispose()
-		for (const child of children) {
+	remotes.forEach((remote, i) => session.start(remote, i))
+	if (ladle) session.startLadle(ladle, apps.length)
+
+	await Promise.race([Promise.all(remotes.map(waitForRemote)), session.crashed])
+	hosts.forEach((host, i) => session.start(host, remotes.length + i))
+
+	await session.crashed
+}
+
+class ServeSession {
+	private readonly children: ChildProcess[] = []
+	private shuttingDown = false
+	private reportCrash!: (err: Error) => void
+
+	readonly crashed: Promise<never>
+
+	constructor(
+		private readonly ws: Workspace,
+		private readonly mode: ServeMode,
+		private readonly output: DevOutput
+	) {
+		this.crashed = new Promise<never>((_, reject) => {
+			this.reportCrash = reject
+		})
+	}
+
+	trapSignals(): void {
+		const onSignal = (): void => {
+			this.stopAll()
+			process.exit(0)
+		}
+
+		process.on('SIGINT', onSignal)
+		process.on('SIGTERM', onSignal)
+	}
+
+	stopAll(): void {
+		if (this.shuttingDown) return
+
+		this.shuttingDown = true
+		this.output.dispose()
+
+		for (const child of this.children) {
 			killTree(child)
 
 			child.stdout?.destroy()
 			child.stderr?.destroy()
 		}
 	}
-	const onSignal = (): void => {
-		stopAll()
-		process.exit(0)
-	}
-	process.on('SIGINT', onSignal)
-	process.on('SIGTERM', onSignal)
 
-	const start = (named: NamedApp, colorIndex: number): void => {
-		const child = spawnApp(ws, named, COLORS[colorIndex % COLORS.length]!, output, mode)
+	start(named: NamedApp, colorIndex: number): void {
+		const child = spawnApp(
+			this.ws,
+			named,
+			COLORS[colorIndex % COLORS.length]!,
+			this.output,
+			this.mode
+		)
+
 		child.on('exit', code => {
-			if (shuttingDown || code === 0 || code === null) return
+			if (this.shuttingDown || code === 0 || code === null) return
 
 			setImmediate(() => {
-				if (shuttingDown) return
+				if (this.shuttingDown) return
 				// The buffered startup output is the only clue to why it died.
-				output.flushAll(named.name)
-				stopAll()
-				reportCrash(
+				this.output.flushAll(named.name)
+				this.stopAll()
+				this.reportCrash(
 					new CliError(
 						`${named.name} stopped unexpectedly (exit ${code}). Shutting down the others.`
 					)
 				)
 			})
 		})
-		children.push(child)
+
+		this.children.push(child)
 	}
 
-	const startLadle = (info: LadleProcess, colorIndex: number): void => {
-		const child = spawnProcess(ws.manifest.packageManager, ['run', info.script], {
-			cwd: join(ws.root, info.dir),
+	startLadle(info: LadleProcess, colorIndex: number): void {
+		const child = spawnProcess(this.ws.manifest.packageManager, ['run', info.script], {
+			cwd: join(this.ws.root, info.dir),
 		})
-		const status = output.track(
+		const status = this.output.track(
 			info.name,
 			{ role: 'component workshop', port: info.port, order: 2, readyOnUrl: true },
 			COLORS[colorIndex % COLORS.length]!
 		)
-		child.stdout?.on('data', (d: Buffer) => output.chunk(status, d, false))
-		child.stderr?.on('data', (d: Buffer) => output.chunk(status, d, true))
+
+		child.stdout?.on('data', (d: Buffer) => this.output.chunk(status, d, false))
+		child.stderr?.on('data', (d: Buffer) => this.output.chunk(status, d, true))
 		child.on('exit', code => {
-			if (shuttingDown || code === 0 || code === null) return
-			// Ladle is auxiliary: a failed workshop must not take the app servers down.
+			if (this.shuttingDown || code === 0 || code === null) return
+
+			// Ladle is auxiliary -- a failed workshop must not take the app servers down.
 			setImmediate(() => {
-				if (shuttingDown) return
-				output.drop(info.name)
+				if (this.shuttingDown) return
+				this.output.drop(info.name)
 				log.warn(`ladle stopped (exit ${code}). The app servers are still running.`)
 			})
 		})
-		children.push(child)
+
+		this.children.push(child)
 	}
-
-	log.step(`starting ${apps.length} app(s), remotes first`)
-
-	remotes.forEach((remote, i) => start(remote, i))
-	if (ladle) startLadle(ladle, apps.length)
-	await Promise.race([Promise.all(remotes.map(waitForRemote)), crashed])
-	hosts.forEach((host, i) => start(host, remotes.length + i))
-
-	await crashed
 }
 
 /*
