@@ -13,6 +13,9 @@ export const MANIFEST_FILE = 'spool.json'
 /** Runtime helper at the workspace root; every app's vite config imports it. */
 export const HELPER_FILE = 'spool.vite.ts'
 
+/** Reads the manifest for user code: tests, scripts, anything wanting the app list. */
+export const WORKSPACE_FILE = 'spool.workspace.ts'
+
 /** Manifest schema version this CLI understands. */
 export const MANIFEST_VERSION = 1
 
@@ -83,6 +86,26 @@ export const AppSchema = z
 	.strict()
 export type AppConfig = z.infer<typeof AppSchema>
 
+const ProxyEntry = z
+	.object({
+		target: z.string(),
+		changeOrigin: z.boolean().optional(),
+		secure: z.boolean().optional(),
+		ws: z.boolean().optional(),
+	})
+	.strict()
+
+export const ServerSchema = z
+	.object({
+		proxy: z.record(z.string(), z.union([z.string(), ProxyEntry])).optional(),
+		headers: z.record(z.string(), z.string()).optional(),
+		host: z.union([z.boolean(), z.string()]).optional(),
+		cors: z.boolean().optional(),
+	})
+	.strict()
+
+export type ServerConfig = z.infer<typeof ServerSchema>
+
 export const ManifestSchema = z
 	.object({
 		/** Org/workspace name; used for npm scope and federation naming. */
@@ -93,6 +116,8 @@ export const ManifestSchema = z
 		bundler: z.enum(['vite']).default('vite'),
 		/** Deps shared as singletons across federation boundary. */
 		shared: z.array(z.string()).default(['react', 'react-dom']),
+		/** Dev server settings shared by every app, e.g. a backend proxy. */
+		server: ServerSchema.optional(),
 		/** Enabled addons whose wiring isn't captured elsewhere in the manifest. */
 		addons: z.array(z.string()).default([]),
 		/** App registry keyed by app name. */

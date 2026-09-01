@@ -33,6 +33,7 @@ describe('workspaceFiles', () => {
 				'pnpm-workspace.yaml',
 				'spool.json',
 				'spool.vite.ts',
+				'spool.workspace.ts',
 				'tsconfig.base.json',
 				'tsconfig.json',
 			].sort()
