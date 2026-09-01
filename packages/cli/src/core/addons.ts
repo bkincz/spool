@@ -10,6 +10,7 @@ import type { Manifest } from './config.js'
 import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_FILE } from './templates/bridges.js'
 import { sentryFiles, sentryNotes } from './templates/sentry.js'
+import { turboConfig, turboNotes } from './templates/turbo.js'
 import { shellRuntimeFiles, shellHostFiles, shellNotes } from './templates/shell.js'
 import {
 	ALIAS_FILE,
@@ -86,7 +87,7 @@ function testFiles(m: Manifest): FileMap {
 }
 
 export const ADDONS: Record<
-	'ladle' | 'playwright' | 'lint' | 'test' | 'state' | 'sentry' | 'shell',
+	'ladle' | 'playwright' | 'lint' | 'test' | 'turbo' | 'state' | 'sentry' | 'shell',
 	Addon
 > = {
 	ladle: {
@@ -136,6 +137,16 @@ export const ADDONS: Record<
 		files: m => testFiles(m),
 		allowBuilds: [],
 		notes: m => testNotes(m),
+	},
+	turbo: {
+		label: 'Turborepo',
+		hint: 'cached, parallel task runs, with spool.json wired into the cache key',
+		unavailable: () => undefined,
+		present: (_root, m) => m.addons.includes('turbo'),
+		apply: m => enableAddon(m, 'turbo'),
+		files: m => ({ 'turbo.json': turboConfig(m) }),
+		allowBuilds: ['turbo'],
+		notes: m => turboNotes(m),
 	},
 	state: {
 		label: 'Shared state',

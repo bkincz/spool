@@ -40,7 +40,7 @@ program
 	.option('--framework <framework>', 'default framework: react | svelte | vue')
 	.option(
 		'--addons <list>',
-		'comma-separated extras: ladle | playwright | lint | test | state | sentry | shell, or "none"'
+		'comma-separated extras: ladle | playwright | lint | test | turbo | state | sentry | shell, or "none"'
 	)
 	.option('--here', 'scaffold into the current directory')
 	.option('--no-install', 'skip dependency install')
@@ -58,7 +58,9 @@ program
 
 program
 	.command('addon [addons...]')
-	.description('Add extras to an existing workspace: ladle | playwright | lint | test | state | sentry | shell')
+	.description(
+		'Add extras to an existing workspace: ladle | playwright | lint | test | turbo | state | sentry | shell'
+	)
 	.option('--no-install', 'skip dependency install')
 	.action(addon)
 

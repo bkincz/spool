@@ -48,7 +48,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `--host <name>`     | Host app, as `name` or `name:framework`                     |
 | `--remotes <list>`  | Comma-separated remotes, each as `name` or `name:framework` |
 | `--framework <fw>`  | Default framework: `react`, `svelte`, or `vue`              |
-| `--addons <list>`   | Extras: `ladle`, `playwright`, `lint`, `test`, `state`, `sentry`, `shell`, or `none` |
+| `--addons <list>`   | Extras: `ladle`, `playwright`, `lint`, `test`, `turbo`, `state`, `sentry`, `shell`, or `none` |
 | `--pm <manager>`    | `pnpm`, `npm`, or `yarn`                                    |
 | `--here`            | Scaffold into the current folder                            |
 | `--no-install`      | Skip the install step                                       |
@@ -131,12 +131,13 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 
 ## Extras
 
-`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, lint, test, state, sentry, shell"`. Missed one? `spool addon` adds it to an existing workspace later.
+`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, lint, test, turbo, state, sentry, shell"`. Missed one? `spool addon` adds it to an existing workspace later.
 
 - **Ladle**: a react design-system package in `packages/ui` with a component workshop. `spool dev` starts it alongside your apps, or open it on its own with `pnpm --filter ui ladle`.
 - **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.
 - **ESLint**: one flat config at the root, with `typescript-eslint` plus the plugin each framework you use needs.
 - **Vitest**: a `vitest.config.ts` per app, separate from `vite.config.ts` because federation cannot run under a test. Hosts get their remotes stubbed in `src/test`, regenerated when the remote list changes. `type-check` scripts come with or without this addon.
+- **Turborepo**: a `turbo.json` that puts `spool.json`, the runtime helper, and the `SPOOL_ENV` / `SPOOL_REMOTE_*` variables into the cache key, so a wiring change never gets a stale hit. `spool dev` and `spool build` are unchanged; turbo covers the tasks spool does not run.
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. The store validates its shape on every change with a plain predicate (no validation library; swap in a zod/valibot/arktype schema if you want one). Bump its `version` and add a `migrate` when the shape changes, and a newer app migrates the shared state in place. Keep changes additive so apps on the old shape still tolerate the new one.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
 - **Shell**: a shared history (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks, all re-exported from `@/shell` (which maps to `src`). The host starts as an editable routed shell; compose one or many remotes into a view however you like. Back and forward work across remotes, and deep links resolve on load.

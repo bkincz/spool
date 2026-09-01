@@ -110,6 +110,8 @@ export const LINT_FRAMEWORK_DEPS: Record<Framework, Record<string, string>> = {
 	vue: { 'eslint-plugin-vue': '^10.10.0' },
 }
 
+export const TURBO_VERSION = '^2.10.12'
+
 export const TEST_DEPS: Record<string, string> = {
 	vitest: '^4.1.11',
 	'@vitest/coverage-v8': '^4.1.11',
@@ -134,6 +136,8 @@ export function rootDevDependencies(m: Manifest): Record<string, string> {
 		'@types/node': TOOLCHAIN['@types/node'],
 		'@bkincz/spool': `^${CLI_VERSION}`,
 	}
+
+	if (m.addons.includes('turbo')) deps.turbo = TURBO_VERSION
 
 	if (m.addons.includes('lint')) {
 		Object.assign(deps, LINT_DEPS)
