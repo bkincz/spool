@@ -2,10 +2,11 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
-import { workspaceFiles, appFiles, hostWiringFiles, ciWorkflows } from '../core/generators.js'
-import { NO_EXTRAS } from '../core/templates/index.js'
-import { parseManifest, type Manifest } from '../core/config.js'
-import { host, remote, makeManifest } from './helpers.js'
+import { workspaceFiles, appFiles, hostWiringFiles } from '../../core/generators.js'
+import { ciWorkflows } from '../../core/templates/workflows.js'
+import { NO_EXTRAS } from '../../core/templates/index.js'
+import { parseManifest, type Manifest } from '../../core/config.js'
+import { host, remote, makeManifest } from '../helpers.js'
 
 /*
  *   FIXTURES
@@ -33,6 +34,7 @@ describe('workspaceFiles', () => {
 				'pnpm-workspace.yaml',
 				'spool.json',
 				'spool.vite.ts',
+				'spool.workspace.ts',
 				'tsconfig.base.json',
 				'tsconfig.json',
 			].sort()
@@ -580,11 +582,55 @@ describe('ciWorkflows', () => {
 	})
 	const files = ciWorkflows(m)
 
-	it('generates one workflow per app that has a deploy command', () => {
+	it('generates a check workflow plus one deploy workflow per deployable app', () => {
 		expect(Object.keys(files).sort()).toEqual([
+			'.github/workflows/ci.yml',
 			'.github/workflows/deploy-dashboard.yml',
 			'.github/workflows/deploy-shell.yml',
 		])
+	})
+
+	describe('the check workflow', () => {
+		const scripts = { build: 'spool build', doctor: 'spool doctor', lint: 'eslint .' }
+		const check = () => ciWorkflows(m, scripts)['.github/workflows/ci.yml']!
+
+		it('runs the root scripts that exist, in a sensible order', () => {
+			const yaml = check()
+
+			expect(yaml.indexOf('run doctor')).toBeLessThan(yaml.indexOf('run lint'))
+			expect(yaml.indexOf('run lint')).toBeLessThan(yaml.indexOf('run build'))
+		})
+
+		it('leaves out a script the workspace does not have', () => {
+			expect(check()).not.toContain('run test')
+			expect(check()).not.toContain('run type-check')
+		})
+
+		it('has no path filters', () => {
+			expect(check()).not.toContain('paths:')
+		})
+
+		it('says the branch list needs checking', () => {
+			expect(check()).toContain('change the branches list below if it is not main')
+		})
+
+		it('runs on pull requests', () => {
+			expect(check()).toContain('pull_request:')
+		})
+
+		it('installs with the workspace package manager', () => {
+			expect(check()).toContain('pnpm install --frozen-lockfile')
+			expect(check()).toContain('pnpm/action-setup')
+		})
+
+		it('skips the pnpm setup action for npm', () => {
+			const npm = makeManifest({ dashboard: remote() })
+			npm.packageManager = 'npm'
+			const yaml = ciWorkflows(npm, scripts)['.github/workflows/ci.yml']!
+
+			expect(yaml).toContain('npm ci')
+			expect(yaml).not.toContain('pnpm/action-setup')
+		})
 	})
 
 	it('path-filters to the app folder plus the workspace-level files', () => {

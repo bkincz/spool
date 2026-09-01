@@ -9,8 +9,8 @@ import {
 	appPort,
 	validateName,
 	type AppConfig,
-} from '../core/config.js'
-import { host, remote } from './helpers.js'
+} from '../../core/config.js'
+import { host, remote } from '../helpers.js'
 
 /*
  *   MANIFEST FILE

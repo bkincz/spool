@@ -31,6 +31,32 @@ export function run(cmd: string, args: string[], opts: SpawnOptions = {}): Promi
 	})
 }
 
+export interface CapturedRun {
+	code: number | null
+	/** stdout and stderr together, in the order the process wrote them. */
+	output: string
+}
+
+export function runCaptured(
+	cmd: string,
+	args: string[],
+	opts: SpawnOptions = {}
+): Promise<CapturedRun> {
+	return new Promise(resolve => {
+		const child = spawn(cmd, args, { ...opts, stdio: ['ignore', 'pipe', 'pipe'] })
+		let output = ''
+
+		const collect = (chunk: Buffer): void => {
+			output += chunk.toString()
+		}
+		child.stdout?.on('data', collect)
+		child.stderr?.on('data', collect)
+
+		child.on('error', (cause: Error) => resolve({ code: null, output: output + cause.message }))
+		child.on('exit', code => resolve({ code, output }))
+	})
+}
+
 export function runShell(command: string, opts: SpawnOptions = {}): Promise<void> {
 	return new Promise((resolve, reject) => {
 		const child = nodeSpawn(command, {

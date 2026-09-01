@@ -40,7 +40,7 @@ program
 	.option('--framework <framework>', 'default framework: react | svelte | vue')
 	.option(
 		'--addons <list>',
-		'comma-separated extras: ladle | playwright | state | sentry | shell, or "none"'
+		'comma-separated extras: ladle | playwright | lint | test | turbo | state | sentry | shell, or "none"'
 	)
 	.option('--here', 'scaffold into the current directory')
 	.option('--no-install', 'skip dependency install')
@@ -58,7 +58,9 @@ program
 
 program
 	.command('addon [addons...]')
-	.description('Add extras to an existing workspace: ladle | playwright | state | sentry | shell')
+	.description(
+		'Add extras to an existing workspace: ladle | playwright | lint | test | turbo | state | sentry | shell'
+	)
 	.option('--no-install', 'skip dependency install')
 	.action(addon)
 
@@ -66,6 +68,7 @@ program
 	.command('remove <name>')
 	.description('Remove an app from the workspace and unwire it from hosts')
 	.option('--files', 'also delete the app folder')
+	.option('--yes', 'with --files, delete without asking')
 	.action(remove)
 
 program
@@ -79,6 +82,7 @@ program
 	.description('Build every app for production (remotes before hosts)')
 	.option('--only <list>', 'comma-separated subset of apps')
 	.option('--env <name>', "select each remote's urls.<name> for this build")
+	.option('--concurrency <n>', 'apps to build at once (default: one less than the cores)')
 	.action(build)
 
 program
@@ -104,6 +108,8 @@ program
 	.command('upgrade')
 	.description('Regenerate spool-owned files and sync the toolchain to this CLI version')
 	.option('--dry-run', 'report what would change without writing')
+	.option('--pin', "write this CLI's dependency ranges even when the workspace is ahead")
+	.option('--force', 'overwrite generated files that have local changes, without asking')
 	.action(upgrade)
 
 program
@@ -111,6 +117,8 @@ program
 	.description('Check ports, app folders, federation wiring and shared deps')
 	.option('--remote', 'also fetch each deployed remote url')
 	.option('--env <name>', "check each remote's urls.<name> instead of url")
+	.option('--fix', 'apply the dependency fixes doctor can make safely')
+	.option('--dry-run', 'with --fix, report what would change without writing')
 	.action(doctor)
 
 /*

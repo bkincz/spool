@@ -6,9 +6,9 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { transform } from 'esbuild'
-import { workspaceFiles } from '../core/generators.js'
-import { HELPER_FILE } from '../core/config.js'
-import { host, remote, makeManifest, freshDir, removeDir } from './helpers.js'
+import { workspaceFiles } from '../../core/generators.js'
+import { HELPER_FILE } from '../../core/config.js'
+import { host, remote, makeManifest, freshDir, removeDir } from '../helpers.js'
 
 /*
  *   TYPES

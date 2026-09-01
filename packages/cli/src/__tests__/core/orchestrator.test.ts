@@ -5,23 +5,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { devAll, previewAll, buildAll, deployAll } from '../core/orchestrator.js'
-import { run, runShell, spawnProcess, killTree } from '../util/exec.js'
-import { waitForManifest } from '../util/net.js'
-import { log } from '../util/logger.js'
-import { makeWorkspace, host, remote, freshDir, removeDir } from './helpers.js'
+import { devAll, previewAll, buildAll, deployAll } from '../../core/orchestrator.js'
+import { runCaptured, runShell, spawnProcess, killTree } from '../../util/exec.js'
+import { waitForManifest } from '../../util/net.js'
+import { log } from '../../util/logger.js'
+import { makeWorkspace, host, remote, freshDir, removeDir } from '../helpers.js'
 
 /*
  *   MOCKS
  ***************************************************************************************************/
-vi.mock('../util/exec.js', () => ({
+vi.mock('../../util/exec.js', () => ({
 	run: vi.fn(),
+	runCaptured: vi.fn(),
 	runShell: vi.fn(),
 	spawnProcess: vi.fn(),
 	killTree: vi.fn(),
 }))
 
-vi.mock('../util/net.js', () => ({
+vi.mock('../../util/net.js', () => ({
 	waitForManifest: vi.fn().mockResolvedValue(undefined),
 }))
 
@@ -141,6 +142,29 @@ describe('devAll', () => {
 		})
 		void devAll(ws, ['dashboard'])
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+	})
+
+	it('fails the build when a singleton shipped as two incompatible copies', async () => {
+		const root = freshDir('spool-singleton-')
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: '' })
+
+		const write = (path: string, version: string, requiredVersion: string) => {
+			mkdirSync(join(root, path, 'dist'), { recursive: true })
+			writeFileSync(
+				join(root, path, 'dist/mf-manifest.json'),
+				JSON.stringify({ shared: [{ name: 'react', version, requiredVersion }] })
+			)
+		}
+		write('apps/shell', '20.0.0', '^20.0.0')
+		write('apps/dashboard', '19.2.8', '^19.2.0')
+
+		const ws = makeWorkspace(root, {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+
+		await expect(buildAll(ws)).rejects.toThrow('more than one copy')
+		removeDir(root)
 	})
 
 	it('rejects an unknown app name in the only filter', async () => {
@@ -527,7 +551,7 @@ describe('previewAll', () => {
  ***************************************************************************************************/
 describe('buildAll', () => {
 	it('builds remotes before hosts', async () => {
-		vi.mocked(run).mockResolvedValue(undefined)
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: '' })
 		const ws = makeWorkspace('/ws', {
 			shell: host({ remotes: ['dashboard'] }),
 			dashboard: remote(),
@@ -535,41 +559,124 @@ describe('buildAll', () => {
 
 		await buildAll(ws)
 
-		const cwds = vi.mocked(run).mock.calls.map(call => (call[2] as { cwd: string }).cwd)
+		const cwds = vi.mocked(runCaptured).mock.calls.map(call => (call[2] as { cwd: string }).cwd)
 		expect(cwds[0]).toContain('dashboard')
 		expect(cwds[1]).toContain('shell')
 		expect(log.success).toHaveBeenCalledWith('built 2 app(s)')
 	})
 
 	it('throws a helpful error naming the app that failed', async () => {
-		vi.mocked(run).mockRejectedValue(new Error('boom'))
+		vi.mocked(runCaptured).mockResolvedValue({ code: 1, output: 'boom' })
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 		await expect(buildAll(ws)).rejects.toThrow('Build failed for "dashboard"')
+	})
+
+	it('names every app that failed, and prints what each one said', async () => {
+		vi.mocked(runCaptured).mockImplementation((_cmd, _args, opts) =>
+			Promise.resolve(
+				(opts as { cwd: string }).cwd.includes('reports')
+					? { code: 0, output: '' }
+					: { code: 1, output: 'it broke' }
+			)
+		)
+		const ws = makeWorkspace('/ws', {
+			dashboard: remote(),
+			profile: remote({ path: 'apps/profile', port: 5175 }),
+			reports: remote({ path: 'apps/reports', port: 5176 }),
+		})
+
+		await expect(buildAll(ws)).rejects.toThrow('Builds failed for "dashboard", "profile"')
+		expect(log.plain).toHaveBeenCalledWith('it broke')
+	})
+
+	it('builds a tier concurrently', async () => {
+		let running = 0
+		let peak = 0
+		vi.mocked(runCaptured).mockImplementation(async () => {
+			running++
+			peak = Math.max(peak, running)
+			await new Promise(resolve => setImmediate(resolve))
+			running--
+			return { code: 0, output: '' }
+		})
+		const ws = makeWorkspace('/ws', {
+			dashboard: remote(),
+			profile: remote({ path: 'apps/profile', port: 5175 }),
+		})
+
+		await buildAll(ws)
+
+		expect(peak).toBe(2)
+	})
+
+	it('honours a concurrency of one', async () => {
+		let running = 0
+		let peak = 0
+		vi.mocked(runCaptured).mockImplementation(async () => {
+			running++
+			peak = Math.max(peak, running)
+			await new Promise(resolve => setImmediate(resolve))
+			running--
+			return { code: 0, output: '' }
+		})
+		const ws = makeWorkspace('/ws', {
+			dashboard: remote(),
+			profile: remote({ path: 'apps/profile', port: 5175 }),
+		})
+
+		await buildAll(ws, undefined, undefined, 1)
+
+		expect(peak).toBe(1)
+	})
+
+	it('finishes every remote before starting a host', async () => {
+		const order: string[] = []
+		vi.mocked(runCaptured).mockImplementation(async (_cmd, _args, opts) => {
+			const { cwd } = opts as { cwd: string }
+			order.push(`start:${cwd}`)
+			await new Promise(resolve => setImmediate(resolve))
+			order.push(`end:${cwd}`)
+			return { code: 0, output: '' }
+		})
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+
+		await buildAll(ws)
+
+		const shellStart = order.findIndex(
+			entry => entry.startsWith('start:') && entry.includes('shell')
+		)
+		const remoteEnd = order.findIndex(
+			entry => entry.startsWith('end:') && entry.includes('dashboard')
+		)
+		expect(remoteEnd).toBeLessThan(shellStart)
 	})
 
 	it('rejects an unknown app name in the only filter', async () => {
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 		await expect(buildAll(ws, ['ghost'])).rejects.toThrow('Unknown app(s) in --only: ghost')
-		expect(run).not.toHaveBeenCalled()
+		expect(runCaptured).not.toHaveBeenCalled()
 	})
 
 	it('passes --env to app builds through SPOOL_ENV', async () => {
-		vi.mocked(run).mockResolvedValue(undefined)
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: '' })
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 
 		await buildAll(ws, undefined, 'staging')
 
-		const opts = vi.mocked(run).mock.calls[0]![2] as { env?: Record<string, string> }
+		const opts = vi.mocked(runCaptured).mock.calls[0]![2] as { env?: Record<string, string> }
 		expect(opts.env?.SPOOL_ENV).toBe('staging')
 	})
 
 	it('inherits the plain environment when --env is not given', async () => {
-		vi.mocked(run).mockResolvedValue(undefined)
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: '' })
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 
 		await buildAll(ws)
 
-		const opts = vi.mocked(run).mock.calls[0]![2] as { env?: Record<string, string> }
+		const opts = vi.mocked(runCaptured).mock.calls[0]![2] as { env?: Record<string, string> }
 		expect(opts.env).toBeUndefined()
 	})
 
@@ -579,12 +686,12 @@ describe('buildAll', () => {
 		const ws = makeWorkspace(root, { dashboard: remote() })
 
 		await expect(buildAll(ws, undefined, 'staging')).rejects.toThrow('spool upgrade')
-		expect(run).not.toHaveBeenCalled()
+		expect(runCaptured).not.toHaveBeenCalled()
 		removeDir(root)
 	})
 
 	it('warns when no selected remote has a urls entry for --env', async () => {
-		vi.mocked(run).mockResolvedValue(undefined)
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: '' })
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 
 		await buildAll(ws, undefined, 'staging')

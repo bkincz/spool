@@ -5,9 +5,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as p from '@clack/prompts'
-import { create } from '../commands/create.js'
-import { run } from '../util/exec.js'
-import { freshDir, removeDir } from './helpers.js'
+import { create } from '../../commands/create.js'
+import { run } from '../../util/exec.js'
+import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   MOCKS
@@ -25,7 +25,7 @@ vi.mock('@clack/prompts', () => ({
 	spinner: () => ({ start: vi.fn(), stop: vi.fn() }),
 }))
 
-vi.mock('../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
 
 /*
  *   TEST SETUP

@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest'
 import { createServer, type Server } from 'node:net'
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http'
-import { waitForPort, waitForManifest } from '../util/net.js'
+import { waitForPort, waitForManifest } from '../../util/net.js'
 
 /*
  *   HELPERS

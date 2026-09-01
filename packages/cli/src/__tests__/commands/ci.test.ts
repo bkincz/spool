@@ -4,15 +4,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { create } from '../commands/create.js'
-import { ci } from '../commands/ci.js'
-import { log } from '../util/logger.js'
-import { freshDir, removeDir } from './helpers.js'
+import { create } from '../../commands/create.js'
+import { ci } from '../../commands/ci.js'
+import { log } from '../../util/logger.js'
+import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   MOCKS
  ***************************************************************************************************/
-vi.mock('../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
 
 /*
  *   TEST SETUP
@@ -87,13 +87,28 @@ describe('ci', () => {
 		expect(existsSync(workflow('dashboard'))).toBe(false)
 	})
 
-	it('rejects when no app can be deployed', async () => {
+	it('still writes the check workflow when nothing deploys', async () => {
 		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
 		for (const app of Object.values(manifest.apps) as { deploy?: string }[]) {
 			delete app.deploy
 		}
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
 
-		await expect(ci({})).rejects.toThrow('nothing to generate')
+		await ci({})
+
+		expect(existsSync(join(dir, '.github/workflows/ci.yml'))).toBe(true)
+		expect(existsSync(workflow('shell'))).toBe(false)
+	})
+
+	it('checks with the scripts the scaffold actually has', async () => {
+		await ci({})
+		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
+
+		expect(yaml).toContain('pnpm run doctor')
+		expect(yaml).toContain('pnpm run type-check')
+		expect(yaml).toContain('pnpm run build')
+
+		// The scaffold has no lint or test script without those addons.
+		expect(yaml).not.toContain('pnpm run lint')
 	})
 })

@@ -9,8 +9,8 @@ import {
 	loadWorkspace,
 	requireWorkspace,
 	saveManifest,
-} from '../core/workspace.js'
-import { freshDir, removeDir, makeManifest, makeWorkspace, host, remote } from './helpers.js'
+} from '../../core/workspace.js'
+import { freshDir, removeDir, makeManifest, makeWorkspace, host, remote } from '../helpers.js'
 
 /*
  *   TEST SETUP

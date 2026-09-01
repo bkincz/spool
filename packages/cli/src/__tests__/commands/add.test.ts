@@ -4,16 +4,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { create } from '../commands/create.js'
-import { add } from '../commands/add.js'
-import { run } from '../util/exec.js'
-import { log } from '../util/logger.js'
-import { freshDir, removeDir } from './helpers.js'
+import { create } from '../../commands/create.js'
+import { add } from '../../commands/add.js'
+import { run } from '../../util/exec.js'
+import { log } from '../../util/logger.js'
+import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   MOCKS
  ***************************************************************************************************/
-vi.mock('../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
 
 /*
  *   TEST SETUP

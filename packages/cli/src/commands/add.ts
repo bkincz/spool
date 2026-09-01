@@ -13,13 +13,15 @@ import {
 	type Framework,
 	type Manifest,
 } from '../core/config.js'
-import { appFiles, defaultExposes, helperFile, hostWiringFiles } from '../core/generators.js'
+import { appFiles, defaultExposes, hostWiringFiles } from '../core/generators.js'
+import { helperFiles } from '../core/templates/helpers.js'
 import { TEMPLATES, remoteRef, remoteRefs } from '../core/templates/index.js'
 import { appDependencies, FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
+import { Provenance } from '../core/provenance.js'
 import { installDependencies } from '../core/install.js'
-import { type PackageJsonShape } from './upgrade.js'
+import { type PackageJsonShape } from '../core/packages.js'
 import { log, fail } from '../util/logger.js'
 
 /*
@@ -69,25 +71,29 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 
 	// Restore the runtime helper if it's missing (workspaces from older spool
 	// versions). The new app's vite config imports it.
-	const restored = await writeFiles(ws.root, await formatFiles(helperFile()))
+	const provenance = Provenance.load(ws.root)
+	const restored = await writeFiles(ws.root, await formatFiles(helperFiles()), { provenance })
 	if (restored.written.length) {
 		log.warn(
 			`${HELPER_FILE} was missing and has been restored. Apps scaffolded before it existed keep their old baked vite configs; re-create them or port them to the helper.`
 		)
 	}
 
-	await writeFiles(join(ws.root, app.path), await formatFiles(appFiles(manifest, name, app)))
+	await writeFiles(join(ws.root, app.path), await formatFiles(appFiles(manifest, name, app)), {
+		provenance,
+	})
 	if (host) {
 		const typings = await formatFiles(hostWiringFiles(manifest, host.app))
-		await writeFiles(join(ws.root, host.app.path), typings, { force: true })
+		await writeFiles(join(ws.root, host.app.path), typings, { force: true, provenance })
 		// A bridge the host now needs is created, but never overwritten in
 		// case the user has edited it.
 		const bridge = TEMPLATES[host.app.framework].bridgeFiles(remoteRefs(manifest, host.app))
-		await writeFiles(join(ws.root, host.app.path), await formatFiles(bridge))
+		await writeFiles(join(ws.root, host.app.path), await formatFiles(bridge), { provenance })
 		// A foreign-framework remote makes the host depend on that framework's
 		// bridge runtime; add the missing deps without touching existing ones.
 		await syncHostDeps(ws.root, manifest, host.app)
 	}
+	await provenance.save()
 	await saveManifest(ws)
 	log.success(`added ${type} ${name} on port ${app.port}`)
 

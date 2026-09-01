@@ -4,8 +4,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { writeFiles } from '../core/fswrite.js'
-import { freshDir, removeDir } from './helpers.js'
+import { writeFiles } from '../../core/fswrite.js'
+import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   TEST SETUP

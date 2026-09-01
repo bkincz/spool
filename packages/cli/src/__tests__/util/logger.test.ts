@@ -2,8 +2,8 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { log, fail } from '../util/logger.js'
-import { CliError } from '../util/errors.js'
+import { log, fail } from '../../util/logger.js'
+import { CliError } from '../../util/errors.js'
 
 /*
  *   TEST SETUP

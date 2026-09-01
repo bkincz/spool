@@ -4,20 +4,20 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { create } from '../commands/create.js'
-import { dev } from '../commands/dev.js'
-import { build } from '../commands/build.js'
-import { preview } from '../commands/preview.js'
-import { deploy } from '../commands/deploy.js'
-import { doctor } from '../commands/doctor.js'
-import { devAll, previewAll, buildAll, deployAll } from '../core/orchestrator.js'
-import { log } from '../util/logger.js'
-import { freshDir, removeDir } from './helpers.js'
+import { create } from '../../commands/create.js'
+import { dev } from '../../commands/dev.js'
+import { build } from '../../commands/build.js'
+import { preview } from '../../commands/preview.js'
+import { deploy } from '../../commands/deploy.js'
+import { doctor } from '../../commands/doctor.js'
+import { devAll, previewAll, buildAll, deployAll } from '../../core/orchestrator.js'
+import { log } from '../../util/logger.js'
+import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   MOCKS
  ***************************************************************************************************/
-vi.mock('../core/orchestrator.js', () => ({
+vi.mock('../../core/orchestrator.js', () => ({
 	devAll: vi.fn().mockResolvedValue(undefined),
 	previewAll: vi.fn().mockResolvedValue(undefined),
 	buildAll: vi.fn().mockResolvedValue(undefined),
@@ -92,24 +92,30 @@ describe('build', () => {
 		expect(buildAll).toHaveBeenCalledWith(
 			expect.objectContaining({ root: dir }),
 			undefined,
+			undefined,
 			undefined
 		)
 	})
 
 	it('passes the only filter and env through', async () => {
 		await build({ only: 'dashboard', env: 'staging' })
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
+		expect(buildAll).toHaveBeenCalledWith(
+			expect.anything(),
+			['dashboard'],
+			'staging',
+			undefined
+		)
 	})
 
 	it('treats an empty --env as no env', async () => {
 		await build({ env: '' })
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined)
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined, undefined)
 	})
 
 	it('reads an exported SPOOL_ENV when --env is absent', async () => {
 		process.env.SPOOL_ENV = 'staging'
 		await build({})
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging')
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging', undefined)
 	})
 })
 

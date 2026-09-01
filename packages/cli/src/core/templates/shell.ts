@@ -1,5 +1,6 @@
 import type { AppConfig, Framework, Manifest } from '../config.js'
-import type { FileMap } from '../generators.js'
+import { SENTRY_SDK } from '../versions.js'
+import type { FileMap } from '../filemap.js'
 import { remoteRefs, type RemoteRef } from './index.js'
 
 export const SHELL_REMOTES_FILE = 'src/shell/remotes.ts'
@@ -44,7 +45,8 @@ function remoteExport(framework: Framework): string {
  * the <Remote> mounting primitive that hides the component/mount contract. */
 export function shellHostFiles(m: Manifest, host: AppConfig): FileMap {
 	const refs = remoteRefs(m, host)
-	const [primitiveFile, primitive] = remotePrimitive(host.framework, refs)
+	const sentry = m.addons.includes('sentry')
+	const [primitiveFile, primitive] = remotePrimitive(host.framework, refs, sentry)
 	return {
 		[SHELL_REMOTES_FILE]: remotesRegistry(refs),
 		[`src/shell/${primitiveFile}`]: primitive,
@@ -186,41 +188,113 @@ export function useLocation(): SpoolLocation {
 	]
 }
 
-function remotePrimitive(framework: Framework, refs: RemoteRef[]): [string, string] {
+function remotePrimitive(
+	framework: Framework,
+	refs: RemoteRef[],
+	sentry: boolean
+): [string, string] {
 	const hasComponent = refs.some(r => r.contract === 'component')
-	if (framework === 'svelte') return ['Remote.svelte', svelteRemote(hasComponent)]
-	if (framework === 'vue') return ['Remote.vue', vueRemote(hasComponent)]
-	return ['remote.tsx', reactRemote()]
+	if (framework === 'svelte') return ['Remote.svelte', svelteRemote(hasComponent, sentry)]
+	if (framework === 'vue') return ['Remote.vue', vueRemote(hasComponent, sentry)]
+	return ['remote.tsx', reactRemote(sentry)]
 }
 
-function reactRemote(): string {
-	return `import { lazy, Suspense, useEffect, useRef, type ComponentType, type ReactNode } from "react";
-import { remotes } from "./remotes";
+function sentryReport(framework: Framework, sentry: boolean): [string, string] {
+	if (!sentry) return ['', '']
+	const sdk = SENTRY_SDK[framework]
+	return [
+		`import * as Sentry from "${sdk}";
+`,
+		'Sentry.captureException(error, { tags: { remote: name } });',
+	]
+}
+
+function reactRemote(sentry: boolean): string {
+	const [sentryImport, sentryCall] = sentryReport('react', sentry)
+	return `import {
+  Component,
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ComponentType,
+  type ReactNode,
+} from "react";
+${sentryImport}import { remotes } from "./remotes";
 
 const cache: Record<string, ComponentType> = {};
 
-export function Remote({ name, fallback = null }: { name: string; fallback?: ReactNode }) {
+export interface RemoteProps {
+  name: string;
+  /** Shown while the remote is still loading. */
+  fallback?: ReactNode;
+  /** Shown when it fails to load; retry re-attempts from scratch. */
+  renderError?: (error: Error, retry: () => void) => ReactNode;
+  onError?: (error: Error, name: string) => void;
+}
+
+export function Remote({ name, fallback = null, renderError = defaultError, onError }: RemoteProps) {
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => {
+    // React caches the rejected promise inside lazy(), so the wrapper has to
+    // go too or the remote stays broken for the life of the page.
+    delete cache[name];
+    setAttempt((n) => n + 1);
+  }, [name]);
+
+  const report = useCallback(
+    (error: Error) => {
+      onError?.(error, name);
+      ${sentryCall}
+    },
+    [name, onError],
+  );
+
   const entry = remotes[name];
   if (!entry) return null;
-  if (entry.contract === "component") {
-    const View = (cache[name] ??= lazy(entry.load as () => Promise<{ default: ComponentType }>));
-    return (
-      <Suspense fallback={fallback}>
-        <View />
-      </Suspense>
-    );
-  }
-  return <MountRemote key={name} load={entry.load} />;
+
+  return (
+    <RemoteBoundary
+      key={name + ":" + attempt}
+      retry={retry}
+      renderError={renderError}
+      onError={report}
+    >
+      {entry.contract === "component" ? (
+        <Suspense fallback={fallback}>
+          <ComponentRemote name={name} load={entry.load} />
+        </Suspense>
+      ) : (
+        <MountRemote load={entry.load} />
+      )}
+    </RemoteBoundary>
+  );
+}
+
+function ComponentRemote({ name, load }: { name: string; load: () => Promise<unknown> }) {
+  const View = (cache[name] ??= lazy(load as () => Promise<{ default: ComponentType }>));
+  return <View />;
 }
 
 function MountRemote({ load }: { load: () => Promise<{ default: unknown }> }) {
   const ref = useRef<HTMLDivElement>(null);
+  // Rethrown during render: a boundary cannot catch a rejected promise.
+  const [failure, setFailure] = useState<Error | null>(null);
+  if (failure) throw failure;
+
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let cancelled = false;
-    void (load() as Promise<{ default: (el: HTMLElement) => () => void }>).then(({ default: mount }) => {
-      if (!cancelled && ref.current) cleanup = mount(ref.current);
-    });
+    void (load() as Promise<{ default: (el: HTMLElement) => () => void }>).then(
+      ({ default: mount }) => {
+        if (!cancelled && ref.current) cleanup = mount(ref.current);
+      },
+      (cause: unknown) => {
+        if (!cancelled) setFailure(asError(cause));
+      },
+    );
     return () => {
       cancelled = true;
       cleanup?.();
@@ -228,68 +302,140 @@ function MountRemote({ load }: { load: () => Promise<{ default: unknown }> }) {
   }, [load]);
   return <div ref={ref} />;
 }
+
+interface BoundaryProps {
+  retry: () => void;
+  renderError: (error: Error, retry: () => void) => ReactNode;
+  onError: (error: Error) => void;
+  children: ReactNode;
+}
+
+class RemoteBoundary extends Component<BoundaryProps, { error: Error | null }> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: unknown) {
+    return { error: asError(error) };
+  }
+
+  componentDidCatch(error: unknown) {
+    this.props.onError(asError(error));
+  }
+
+  render() {
+    const { error } = this.state;
+    if (!error) return this.props.children;
+    return this.props.renderError(error, this.props.retry);
+  }
+}
+
+const asError = (cause: unknown): Error =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+/** Unstyled on purpose: pass renderError to make it yours. */
+function defaultError(_error: Error, retry: () => void): ReactNode {
+  return (
+    <div role="alert" data-remote-error="">
+      <p>This section could not be loaded.</p>
+      <button type="button" onClick={retry}>
+        Try again
+      </button>
+    </div>
+  );
+}
 `
 }
 
-function svelteRemote(hasComponent: boolean): string {
+function svelteRemote(hasComponent: boolean, sentry: boolean): string {
+	const [sentryImport, sentryCall] = sentryReport('svelte', sentry)
 	const bridgeImport = hasComponent ? `\n  import { mountReact } from "../react-bridge";` : ''
 	const mountExpr = hasComponent
 		? `entry.contract === "component"
-        ? mountReact(m.default as never, el)
-        : (m.default as (el: HTMLElement) => () => void)(el)`
+          ? mountReact(m.default as never, el)
+          : (m.default as (el: HTMLElement) => () => void)(el)`
 		: `(m.default as (el: HTMLElement) => () => void)(el)`
 	return `<script lang="ts">
   import { onDestroy } from "svelte";${bridgeImport}
-  import { remotes } from "./remotes";
+  ${sentryImport}import { remotes } from "./remotes";
 
   export let name: string;
 
   let el: HTMLElement;
   let cleanup: (() => void) | undefined;
   let current: string | undefined;
+  let error: Error | undefined;
 
   $: if (el && name !== current) void swap(name);
 
   async function swap(next: string) {
     current = next;
+    error = undefined;
     cleanup?.();
     cleanup = undefined;
     const entry = remotes[next];
     if (!entry) return;
-    const m = await entry.load();
-    cleanup = ${mountExpr};
+    try {
+      const m = await entry.load();
+      cleanup = ${mountExpr};
+    } catch (cause) {
+      error = cause instanceof Error ? cause : new Error(String(cause));
+      const name = next;
+      ${sentryCall}
+      console.error('remote "' + next + '" failed to load', cause);
+    }
+  }
+
+  function retry() {
+    current = undefined;
+    void swap(name);
   }
 
   onDestroy(() => cleanup?.());
 </script>
 
+{#if error}
+  <div role="alert" data-remote-error>
+    <p>This section could not be loaded.</p>
+    <button type="button" on:click={retry}>Try again</button>
+  </div>
+{/if}
 <div bind:this={el}></div>
 `
 }
 
-function vueRemote(hasComponent: boolean): string {
+function vueRemote(hasComponent: boolean, sentry: boolean): string {
+	const [sentryImport, sentryCall] = sentryReport('vue', sentry)
 	const bridgeImport = hasComponent ? `\nimport { mountReact } from "../react-bridge";` : ''
 	const mountExpr = hasComponent
 		? `entry.contract === "component"
-      ? mountReact(m.default as never, el.value)
-      : (m.default as (el: HTMLElement) => () => void)(el.value)`
+        ? mountReact(m.default as never, el.value)
+        : (m.default as (el: HTMLElement) => () => void)(el.value)`
 		: `(m.default as (el: HTMLElement) => () => void)(el.value)`
 	return `<script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";${bridgeImport}
-import { remotes } from "./remotes";
+${sentryImport}import { remotes } from "./remotes";
 
 const props = defineProps<{ name: string }>();
 const el = ref<HTMLElement | null>(null);
+const error = ref<Error | null>(null);
 let cleanup: (() => void) | undefined;
 
 async function swap(name: string) {
+  error.value = null;
   cleanup?.();
   cleanup = undefined;
   const entry = remotes[name];
   if (!entry || !el.value) return;
-  const m = await entry.load();
-  cleanup = ${mountExpr};
+  try {
+    const m = await entry.load();
+    cleanup = ${mountExpr};
+  } catch (cause) {
+    error.value = cause instanceof Error ? cause : new Error(String(cause));
+    ${sentryCall}
+    console.error('remote "' + name + '" failed to load', cause);
+  }
 }
+
+const retry = () => void swap(props.name);
 
 onMounted(() => {
   void swap(props.name);
@@ -299,6 +445,10 @@ onBeforeUnmount(() => cleanup?.());
 </script>
 
 <template>
+  <div v-if="error" role="alert" data-remote-error>
+    <p>This section could not be loaded.</p>
+    <button type="button" @click="retry">Try again</button>
+  </div>
   <div ref="el"></div>
 </template>
 `

@@ -2,6 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { rm } from 'node:fs/promises'
+import * as p from '@clack/prompts'
 import { join, resolve, sep } from 'node:path'
 import { requireWorkspace, saveManifest, type Workspace } from '../core/workspace.js'
 import { hostWiringFiles } from '../core/generators.js'
@@ -14,6 +15,7 @@ import { log, fail } from '../util/logger.js'
  ***************************************************************************************************/
 export interface RemoveOptions {
 	files?: boolean
+	yes?: boolean
 }
 
 /*
@@ -27,11 +29,16 @@ export async function remove(name: string, opts: RemoveOptions): Promise<void> {
 	if (!app) {
 		fail(`No app named "${name}" in this workspace. Check the names in spool.json.`)
 	}
-	// Validate before mutating anything, so a refusal leaves the workspace as it was.
+
 	const appDir = opts.files ? appDirInsideWorkspace(ws, app.path) : undefined
+	if (appDir && !(await confirmDelete(app.path, opts.yes ?? false))) {
+		log.step(`Left ${app.path} on disk; nothing was removed.`)
+		return
+	}
 
 	delete manifest.apps[name]
 	const hosts = unwireFromHosts(ws, name)
+
 	for (const host of hosts) await refreshHostTypings(ws, host)
 	await saveManifest(ws)
 
@@ -53,6 +60,17 @@ export async function remove(name: string, opts: RemoveOptions): Promise<void> {
 /*
  *   HELPERS
  ***************************************************************************************************/
+async function confirmDelete(path: string, yes: boolean): Promise<boolean> {
+	if (yes || !process.stdin.isTTY) return true
+
+	const answer = await p.confirm({
+		message: `Delete ${path} and everything in it?`,
+		initialValue: false,
+	})
+
+	return !p.isCancel(answer) && answer
+}
+
 interface HostRef {
 	name: string
 	path: string
@@ -61,12 +79,15 @@ interface HostRef {
 
 function unwireFromHosts(ws: Workspace, remote: string): HostRef[] {
 	const affected: HostRef[] = []
+
 	for (const [hostName, host] of Object.entries(ws.manifest.apps)) {
 		if (host.type !== 'host' || !host.remotes.includes(remote)) continue
+
 		host.remotes = host.remotes.filter(r => r !== remote)
 		affected.push({ name: hostName, path: host.path, remotes: host.remotes })
 		log.step(`unwired ${remote} from host ${hostName}`)
 	}
+
 	return affected
 }
 
@@ -79,8 +100,6 @@ async function refreshHostTypings(ws: Workspace, host: HostRef): Promise<void> {
 			{ force: true }
 		)
 	} else {
-		// hostWiringFiles writes nothing for a host without remotes, so the
-		// stale declarations have to go explicitly.
 		await rm(join(ws.root, host.path, 'src/remotes.d.ts'), { force: true })
 	}
 }
@@ -88,11 +107,14 @@ async function refreshHostTypings(ws: Workspace, host: HostRef): Promise<void> {
 /** A hand-edited path must never let --files delete outside the workspace. */
 function appDirInsideWorkspace(ws: Workspace, appPath: string): string {
 	const target = resolve(ws.root, appPath)
+
 	if (target !== ws.root && !target.startsWith(ws.root + sep)) {
 		fail(`Refusing to delete "${appPath}": it resolves outside the workspace.`)
 	}
+
 	if (target === ws.root) {
 		fail(`Refusing to delete "${appPath}": it is the workspace root.`)
 	}
+
 	return target
 }

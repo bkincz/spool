@@ -5,7 +5,15 @@ import { createRequire } from 'node:module'
 import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from './config.js'
 import { packageName } from '../util/names.js'
 
-export const PNPM_VERSION = '11.6.0'
+export const ADDON_DEPS = {
+	'@ladle/react': '^5.1.1',
+	'@playwright/test': '^1.62.1',
+} as const
+
+export const PNPM_VERSION = '11.25.0'
+
+/** Within vite's supported range; Node 20 is EOL and pnpm 11 needs 22.13+. */
+export const NODE_RANGE = '>=22.12.0'
 
 const requirePackage = createRequire(import.meta.url)
 
@@ -30,18 +38,18 @@ export const CLI_VERSION = readCliVersion()
  * every change, so a bump here gets verified end to end.
  */
 export const TOOLCHAIN = {
-	react: '^19.2.0',
-	'react-dom': '^19.2.0',
+	react: '^19.2.8',
+	'react-dom': '^19.2.8',
 	'@types/react': '^19.2.0',
 	'@types/react-dom': '^19.2.0',
-	svelte: '^5.56.0',
+	svelte: '^5.57.0',
 	'@sveltejs/vite-plugin-svelte': '^7.1.0',
-	vue: '^3.5.0',
+	vue: '^3.5.42',
 	'@vitejs/plugin-vue': '^6.0.0',
 	'@types/node': '^26.0.0',
 	'@module-federation/vite': '^1.16.0',
 	'@vitejs/plugin-react': '^6.0.0',
-	typescript: '^5.6.3',
+	typescript: '^6.0.3',
 	vite: '^8.0.0',
 } as const
 
@@ -88,7 +96,7 @@ export const COMMON_DEV_DEPS: ToolchainDep[] = [
 ]
 
 export const SHARED_EXTRAS: Record<string, string> = {
-	'@bkincz/clutch': '^3.3.1',
+	'@bkincz/clutch': '^3.5.0',
 }
 
 export const SENTRY_SDK: Record<Framework, string> = {
@@ -97,8 +105,57 @@ export const SENTRY_SDK: Record<Framework, string> = {
 	vue: '@sentry/vue',
 }
 
+export const LINT_DEPS: Record<string, string> = {
+	eslint: '^10.9.1',
+	'@eslint/js': '^10.0.1',
+	'typescript-eslint': '^8.69.0',
+	globals: '^17.11.0',
+}
+
+export const LINT_FRAMEWORK_DEPS: Record<Framework, Record<string, string>> = {
+	react: { 'eslint-plugin-react-hooks': '^7.1.1' },
+	svelte: { 'eslint-plugin-svelte': '^3.23.0' },
+	vue: { 'eslint-plugin-vue': '^10.10.0' },
+}
+
+export const TURBO_VERSION = '^2.10.12'
+
+export const TEST_DEPS: Record<string, string> = {
+	vitest: '^4.1.11',
+	'@vitest/coverage-v8': '^4.1.11',
+	'happy-dom': '^20.12.0',
+}
+
+export const TEST_FRAMEWORK_DEPS: Record<Framework, Record<string, string>> = {
+	react: {
+		'@testing-library/react': '^16.3.3',
+		'@testing-library/dom': '^10.4.1',
+	},
+	svelte: { '@testing-library/svelte': '^5.4.2' },
+	vue: { '@testing-library/vue': '^8.1.0' },
+}
+
 export const SENTRY_VERSION = '^10.64.0'
 export const SENTRY_VITE_PLUGIN_VERSION = '^5.3.0'
+
+export function rootDevDependencies(m: Manifest): Record<string, string> {
+	const deps: Record<string, string> = {
+		typescript: TOOLCHAIN.typescript,
+		'@types/node': TOOLCHAIN['@types/node'],
+		'@bkincz/spool': `^${CLI_VERSION}`,
+	}
+
+	if (m.addons.includes('turbo')) deps.turbo = TURBO_VERSION
+
+	if (m.addons.includes('lint')) {
+		Object.assign(deps, LINT_DEPS)
+		for (const framework of new Set(Object.values(m.apps).map(app => app.framework))) {
+			Object.assign(deps, LINT_FRAMEWORK_DEPS[framework])
+		}
+	}
+
+	return deps
+}
 
 export function appDependencies(
 	m: Manifest,
@@ -130,6 +187,9 @@ export function appDependencies(
 	if (m.addons.includes('sentry')) {
 		dependencies[SENTRY_SDK[app.framework]] = SENTRY_VERSION
 		devDependencies['@sentry/vite-plugin'] = SENTRY_VITE_PLUGIN_VERSION
+	}
+	if (m.addons.includes('test')) {
+		Object.assign(devDependencies, TEST_DEPS, TEST_FRAMEWORK_DEPS[app.framework])
 	}
 	put(COMMON_DEV_DEPS, devDependencies)
 	return { dependencies, devDependencies }

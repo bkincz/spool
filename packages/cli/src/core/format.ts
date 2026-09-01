@@ -1,7 +1,7 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import type { FileMap } from './generators.js'
+import type { FileMap } from './filemap.js'
 
 /*
  *   HOUSE STYLE

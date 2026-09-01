@@ -5,11 +5,14 @@ import { describe, it, expect, beforeAll, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { freshDir, removeDir } from './helpers.js'
+import { freshDir, removeDir } from '../helpers.js'
+import { ADDON_NAMES } from '../../core/addons.js'
 
 const pty = await import('node-pty').catch(() => null)
-const CLI = fileURLToPath(new URL('../../dist/index.js', import.meta.url))
+const CLI = fileURLToPath(new URL('../../../dist/index.js', import.meta.url))
 const runnable = pty !== null && existsSync(CLI)
+
+const SENTRY_INDEX = ADDON_NAMES.indexOf('sentry')
 
 /*
  *   PTY HARNESS
@@ -136,8 +139,7 @@ describe.skipIf(!runnable)('create (real pty)', () => {
 			dir
 		)
 		await s.waitFor(/Extras to include/)
-		// Options are ladle, playwright, state, sentry, shell; step to sentry and select it.
-		await s.send([DOWN, DOWN, DOWN, SPACE, ENTER])
+		await s.send([...Array(SENTRY_INDEX).fill(DOWN), SPACE, ENTER])
 		await s.waitFor(/Sentry DSN/)
 		await s.send([ENTER]) // blank DSN
 

@@ -4,8 +4,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { create } from '../commands/create.js'
-import { freshDir, removeDir } from './helpers.js'
+import { create } from '../../commands/create.js'
+import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   TEST SETUP

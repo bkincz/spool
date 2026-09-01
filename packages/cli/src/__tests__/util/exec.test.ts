@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
-import { run, spawnProcess, killTree } from '../util/exec.js'
+import { run, spawnProcess, killTree } from '../../util/exec.js'
 import type { ChildProcess } from 'node:child_process'
 
 /*

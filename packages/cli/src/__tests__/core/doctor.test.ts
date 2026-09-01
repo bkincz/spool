@@ -4,9 +4,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { diagnose, diagnoseRemotes } from '../core/doctor.js'
-import { freshDir, removeDir, makeWorkspace, host, remote } from './helpers.js'
-import type { AppConfig } from '../core/config.js'
+import { diagnose, diagnoseRemotes } from '../../core/doctor.js'
+import { freshDir, removeDir, makeWorkspace, host, remote } from '../helpers.js'
+import type { AppConfig } from '../../core/config.js'
 
 /*
  *   TEST SETUP
