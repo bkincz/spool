@@ -1,0 +1,190 @@
+/*
+ *   IMPORTS
+ ***************************************************************************************************/
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { create } from '../../commands/create.js'
+import { dev } from '../../commands/dev.js'
+import { build } from '../../commands/build.js'
+import { preview } from '../../commands/preview.js'
+import { deploy } from '../../commands/deploy.js'
+import { doctor } from '../../commands/doctor.js'
+import { devAll, previewAll, buildAll, deployAll } from '../../core/orchestrator.js'
+import { log } from '../../util/logger.js'
+import { freshDir, removeDir } from '../helpers.js'
+
+/*
+ *   MOCKS
+ ***************************************************************************************************/
+vi.mock('../../core/orchestrator.js', () => ({
+	devAll: vi.fn().mockResolvedValue(undefined),
+	previewAll: vi.fn().mockResolvedValue(undefined),
+	buildAll: vi.fn().mockResolvedValue(undefined),
+	deployAll: vi.fn().mockResolvedValue(undefined),
+}))
+
+/*
+ *   TEST SETUP
+ ***************************************************************************************************/
+let dir: string
+let cwd: string
+
+beforeEach(async () => {
+	dir = freshDir('spool-cmd-')
+	cwd = process.cwd()
+	vi.spyOn(console, 'log').mockImplementation(() => {})
+	await create(dir, {
+		name: 'acme',
+		pm: 'pnpm',
+		host: 'shell',
+		remotes: 'dashboard',
+		install: false,
+	})
+	process.chdir(dir)
+})
+
+afterEach(() => {
+	process.chdir(cwd)
+	removeDir(dir)
+	process.exitCode = undefined
+	delete process.env.SPOOL_ENV
+	vi.clearAllMocks()
+	vi.restoreAllMocks()
+})
+
+/*
+ *   DEV
+ ***************************************************************************************************/
+describe('dev', () => {
+	it('runs every app by default', async () => {
+		await dev({})
+		expect(devAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+	})
+
+	it('passes the only filter through', async () => {
+		await dev({ only: 'shell, dashboard' })
+		expect(devAll).toHaveBeenCalledWith(expect.anything(), ['shell', 'dashboard'])
+	})
+})
+
+/*
+ *   PREVIEW
+ ***************************************************************************************************/
+describe('preview', () => {
+	it('previews every app by default', async () => {
+		await preview({})
+		expect(previewAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+	})
+
+	it('passes the only filter through', async () => {
+		await preview({ only: 'shell, dashboard' })
+		expect(previewAll).toHaveBeenCalledWith(expect.anything(), ['shell', 'dashboard'])
+	})
+})
+
+/*
+ *   BUILD
+ ***************************************************************************************************/
+describe('build', () => {
+	it('builds every app by default', async () => {
+		await build({})
+		expect(buildAll).toHaveBeenCalledWith(
+			expect.objectContaining({ root: dir }),
+			undefined,
+			undefined,
+			undefined
+		)
+	})
+
+	it('passes the only filter and env through', async () => {
+		await build({ only: 'dashboard', env: 'staging' })
+		expect(buildAll).toHaveBeenCalledWith(
+			expect.anything(),
+			['dashboard'],
+			'staging',
+			undefined
+		)
+	})
+
+	it('treats an empty --env as no env', async () => {
+		await build({ env: '' })
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined, undefined)
+	})
+
+	it('reads an exported SPOOL_ENV when --env is absent', async () => {
+		process.env.SPOOL_ENV = 'staging'
+		await build({})
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging', undefined)
+	})
+})
+
+/*
+ *   DEPLOY
+ ***************************************************************************************************/
+describe('deploy', () => {
+	it('deploys every app by default', async () => {
+		await deploy({})
+		expect(deployAll).toHaveBeenCalledWith(
+			expect.objectContaining({ root: dir }),
+			undefined,
+			undefined
+		)
+	})
+
+	it('passes the only filter and env through', async () => {
+		await deploy({ only: 'dashboard', env: 'staging' })
+		expect(deployAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
+	})
+})
+
+/*
+ *   DOCTOR
+ ***************************************************************************************************/
+describe('doctor', () => {
+	it('reports a healthy workspace', async () => {
+		const success = vi.spyOn(log, 'success').mockImplementation(() => {})
+		await doctor()
+		expect(success).toHaveBeenCalledWith(expect.stringContaining('no problems found'))
+	})
+
+	it('reports warnings without failing the run', async () => {
+		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
+		manifest.apps.extra = {
+			type: 'remote',
+			path: 'apps/extra',
+			port: 5199,
+			exposes: { './App': './src/App.tsx' },
+		}
+		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
+		mkdirSync(join(dir, 'apps/extra'), { recursive: true })
+
+		vi.spyOn(log, 'warn').mockImplementation(() => {})
+		const info = vi.spyOn(log, 'info').mockImplementation(() => {})
+
+		await doctor()
+		expect(info).toHaveBeenCalledWith(expect.stringContaining('warning'))
+		expect(process.exitCode).toBeUndefined()
+	})
+
+	it('checks deployed remotes with --remote', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		vi.spyOn(log, 'info').mockImplementation(() => {})
+		vi.spyOn(log, 'plain').mockImplementation(() => {})
+
+		await doctor({ remote: true })
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('no "url"'))
+	})
+
+	it('sets a non-zero exit code when it finds an error', async () => {
+		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
+		manifest.apps.dashboard.port = manifest.apps.shell.port
+		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
+
+		vi.spyOn(log, 'error').mockImplementation(() => {})
+		vi.spyOn(log, 'info').mockImplementation(() => {})
+
+		await doctor()
+		expect(process.exitCode).toBe(1)
+	})
+})

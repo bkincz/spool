@@ -5,6 +5,11 @@ import { createRequire } from 'node:module'
 import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from './config.js'
 import { packageName } from '../util/names.js'
 
+export const ADDON_DEPS = {
+	'@ladle/react': '^5.1.1',
+	'@playwright/test': '^1.62.1',
+} as const
+
 export const PNPM_VERSION = '11.25.0'
 
 /** Within vite's supported range; Node 20 is EOL and pnpm 11 needs 22.13+. */

@@ -8,8 +8,10 @@ import * as p from '@clack/prompts'
 import pc from 'picocolors'
 import type { Manifest } from './config.js'
 import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
-import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_FILE } from './templates/bridges.js'
 import { sentryFiles, sentryNotes } from './templates/sentry.js'
+import { ladleFiles } from './templates/ladle.js'
+import { playwrightFiles } from './templates/playwright.js'
+import { stateFiles } from './templates/state.js'
 import { turboConfig, turboNotes } from './templates/turbo.js'
 import { shellRuntimeFiles, shellHostFiles, shellNotes } from './templates/shell.js'
 import {
@@ -22,14 +24,8 @@ import {
 	vitestConfig,
 } from './templates/quality.js'
 import type { FileMap } from './filemap.js'
-import { NODE_RANGE, TOOLCHAIN } from './versions.js'
 import { splitList } from '../util/names.js'
 import { fail } from '../util/logger.js'
-
-const ADDON_DEPS = {
-	'@ladle/react': '^5.1.0',
-	'@playwright/test': '^1.61.0',
-} as const
 
 /*
  *   TYPES
@@ -250,7 +246,6 @@ export async function promptAddons(
 /*
  *   HELPERS
  ***************************************************************************************************/
-const json = (value: unknown): string => `${JSON.stringify(value, null, 2)}\n`
 
 function runIn(m: Manifest, pkg: string, script: string): string {
 	if (m.packageManager === 'pnpm') return `\`pnpm --filter ${pkg} ${script}\``
@@ -261,174 +256,3 @@ function runIn(m: Manifest, pkg: string, script: string): string {
 /*
  *   LADLE
  ***************************************************************************************************/
-function ladleFiles(): FileMap {
-	return {
-		'packages/ui/package.json': json({
-			name: 'ui',
-			version: '0.0.0',
-			private: true,
-			type: 'module',
-			main: './src/index.ts',
-			engines: { node: NODE_RANGE },
-			scripts: {
-				ladle: 'ladle serve',
-				'ladle:build': 'ladle build',
-			},
-			dependencies: {
-				react: TOOLCHAIN.react,
-				'react-dom': TOOLCHAIN['react-dom'],
-			},
-			devDependencies: {
-				'@ladle/react': ADDON_DEPS['@ladle/react'],
-				'@types/react': TOOLCHAIN['@types/react'],
-				'@types/react-dom': TOOLCHAIN['@types/react-dom'],
-				typescript: TOOLCHAIN.typescript,
-			},
-		}),
-		'packages/ui/tsconfig.json': json({
-			extends: '../../tsconfig.base.json',
-			compilerOptions: { jsx: 'react-jsx' },
-			include: ['src'],
-		}),
-		'packages/ui/src/index.ts': `export { Button, type ButtonProps } from "./Button";\n`,
-		'packages/ui/src/Button.tsx': `import type { ReactNode } from "react";
-
-export interface ButtonProps {
-  children: ReactNode;
-  onClick?: () => void;
-}
-
-export function Button({ children, onClick }: ButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      style={{
-        font: "inherit",
-        padding: "8px 16px",
-        borderRadius: 6,
-        border: "1px solid #ccc",
-        cursor: "pointer",
-      }}
-    >
-      {children}
-    </button>
-  );
-}
-`,
-		'packages/ui/src/Button.stories.tsx': `import type { Story } from "@ladle/react";
-import { Button } from "./Button";
-
-export const Basic: Story = () => <Button>Click me</Button>;
-`,
-	}
-}
-
-/*
- *   SHARED STATE
- ***************************************************************************************************/
-function stateFiles(m: Manifest): FileMap {
-	// Every app gets its own copy; sharedMachine resolves all copies to one instance per page.
-	const store = `import { createMachine, sharedMachine, validate } from "@bkincz/clutch";
-
-export interface CounterState {
-  count: number;
-}
-
-// validate() takes any predicate; swap in a zod/valibot/arktype schema here for
-// richer shapes. When CounterState's shape changes, bump \`version\` and migrate
-// older shapes below; a newer app then migrates the shared state in place. Keep
-// changes additive so apps still on the old shape tolerate the new one.
-export const counterMachine = sharedMachine(
-  "${m.name}:counter",
-  () =>
-    createMachine<CounterState>({ initialState: { count: 0 } }).with(
-      validate<CounterState>(state => typeof state.count === "number" || "count must be a number"),
-    ),
-  {
-    version: 1,
-    migrate: previous => previous as CounterState,
-  },
-);
-`
-	const files: FileMap = {}
-	for (const app of Object.values(m.apps)) {
-		files[`${app.path}/${STATE_STORE_FILE}`] = store
-	}
-	return files
-}
-
-/*
- *   PLAYWRIGHT
- ***************************************************************************************************/
-function playwrightFiles(m: Manifest, extras: TemplateExtras): FileMap {
-	const [hostName, host] = Object.entries(m.apps).find(([, app]) => app.type === 'host')!
-	const origin = `http://localhost:${host.port}`
-
-	const remoteChecks = host.remotes
-		.map(
-			remote => `
-  await expect(page.getByRole("heading", { name: "${remote}" })).toBeVisible();`
-		)
-		.join('')
-	// Proves the remotes actually loaded over federation, not just that the host rendered.
-	const loadedCheck = host.remotes.length
-		? `
-  await expect(page.getByText(/exposed via Module Federation/)).toHaveCount(${host.remotes.length});`
-		: ''
-	const stateTest =
-		extras.stateExample && host.remotes.length
-			? `
-
-test("remote clicks update the shell's shared state", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByTestId("${STATE_COUNT_TESTID}")).toHaveText("${STATE_COUNT_TEXT} 0");
-  await page.getByRole("button", { name: "Increment" }).first().click();
-  await expect(page.getByTestId("${STATE_COUNT_TESTID}")).toHaveText("${STATE_COUNT_TEXT} 1");
-});`
-			: ''
-
-	return {
-		'packages/e2e/package.json': json({
-			name: 'e2e',
-			version: '0.0.0',
-			private: true,
-			type: 'module',
-			engines: { node: NODE_RANGE },
-			scripts: {
-				test: 'playwright test',
-				'test:ui': 'playwright test --ui',
-			},
-			devDependencies: {
-				'@playwright/test': ADDON_DEPS['@playwright/test'],
-				'@types/node': TOOLCHAIN['@types/node'],
-				typescript: TOOLCHAIN.typescript,
-			},
-		}),
-		'packages/e2e/tsconfig.json': json({
-			extends: '../../tsconfig.base.json',
-			include: ['tests', 'playwright.config.ts'],
-		}),
-		'packages/e2e/playwright.config.ts': `import { defineConfig } from "@playwright/test";
-
-// Boots the whole workspace (remotes first, then the host) and tests ${hostName}.
-export default defineConfig({
-  testDir: "./tests",
-  use: { baseURL: "${origin}" },
-  webServer: {
-    command: "${m.packageManager} run dev",
-    url: "${origin}",
-    cwd: "../..",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
-});
-`,
-		[`packages/e2e/tests/${hostName}.spec.ts`]: `import { test, expect } from "@playwright/test";
-
-test("${hostName} mounts every remote", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "${hostName} (host)" })).toBeVisible();${remoteChecks}${loadedCheck}
-});${stateTest}
-`,
-	}
-}
