@@ -1,7 +1,7 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseManifest, type AppConfig, type Manifest } from '../core/config.js'
@@ -11,7 +11,7 @@ import type { Workspace } from '../core/workspace.js'
  *   TEMP DIRS
  ***************************************************************************************************/
 export function freshDir(prefix = 'spool-test-'): string {
-	return mkdtempSync(join(tmpdir(), prefix))
+	return realpathSync.native(mkdtempSync(join(tmpdir(), prefix)))
 }
 
 export function removeDir(dir: string): void {
