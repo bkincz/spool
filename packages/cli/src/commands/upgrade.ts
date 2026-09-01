@@ -52,6 +52,8 @@ const REASONS: Record<OverwriteReason, string> = {
 const shouldSet = (from: string | undefined, to: string, pin: boolean): boolean =>
 	pin ? from !== to : isUpgrade(from, to)
 
+const PLAIN_PNPM = /^pnpm@(\d+\.\d+\.\d+)$/
+
 const targetRange = (ctx: UpgradeContext, dep: string, ours: string): string =>
 	ctx.pin ? ours : (ctx.ranges.get(dep)?.target ?? ours)
 
@@ -148,9 +150,13 @@ async function upgradeRoot(ctx: UpgradeContext): Promise<void> {
 			}
 		}
 
+		const pinned = pkg.packageManager
+		const movable = pinned === undefined || PLAIN_PNPM.test(pinned)
+
 		if (
 			ws.manifest.packageManager === 'pnpm' &&
-			pkg.packageManager !== `pnpm@${PNPM_VERSION}`
+			movable &&
+			shouldSet(PLAIN_PNPM.exec(pinned ?? '')?.[1], PNPM_VERSION, pin)
 		) {
 			pkg.packageManager = `pnpm@${PNPM_VERSION}`
 			changes.push(`packageManager -> pnpm@${PNPM_VERSION}`)
@@ -220,7 +226,7 @@ class ChangeWriter {
 		private readonly dryRun: boolean,
 		private readonly provenance: Provenance | null,
 		private readonly force: boolean
-	) { }
+	) {}
 
 	private get verb(): string {
 		return this.dryRun ? 'would update' : 'updated'

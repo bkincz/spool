@@ -97,8 +97,8 @@ describe('upgrade', () => {
 		await upgrade({})
 
 		const pkg = readJson('apps/dashboard/package.json')
-		expect(pkg.dependencies.react).toBe('^19.2.0')
-		expect(pkg.dependencies['react-dom']).toBe('^19.2.0')
+		expect(pkg.dependencies.react).toBe('^19.2.8')
+		expect(pkg.dependencies['react-dom']).toBe('^19.2.8')
 		expect(pkg.devDependencies['@types/node']).toBe('^26.0.0')
 		expect(pkg.engines.node).toBe('>=22.12.0')
 	})
@@ -186,6 +186,36 @@ describe('upgrade', () => {
 		expect(readJson('package.json').scripts.build).toBe('my custom build')
 	})
 
+	it('never reverts a newer packageManager pin', async () => {
+		const pkg = readJson('package.json')
+		pkg.packageManager = 'pnpm@99.0.0'
+		writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg))
+
+		await upgrade({})
+
+		expect(readJson('package.json').packageManager).toBe('pnpm@99.0.0')
+	})
+
+	it('raises an older packageManager pin', async () => {
+		const pkg = readJson('package.json')
+		pkg.packageManager = 'pnpm@10.0.0'
+		writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg))
+
+		await upgrade({})
+
+		expect(readJson('package.json').packageManager).toBe('pnpm@11.25.0')
+	})
+
+	it('leaves a hashed packageManager pin alone', async () => {
+		const pkg = readJson('package.json')
+		pkg.packageManager = 'pnpm@11.6.0+sha512.abc'
+		writeFileSync(join(dir, 'package.json'), JSON.stringify(pkg))
+
+		await upgrade({})
+
+		expect(readJson('package.json').packageManager).toBe('pnpm@11.6.0+sha512.abc')
+	})
+
 	it('never downgrades a dependency the workspace is ahead on', async () => {
 		const pkg = readJson('apps/dashboard/package.json')
 		pkg.dependencies.react = '^21.0.0'
@@ -206,8 +236,8 @@ describe('upgrade', () => {
 
 		await upgrade({ pin: true })
 
-		expect(readJson('apps/dashboard/package.json').dependencies.react).toBe('^19.2.0')
-		expect(readJson('apps/shell/package.json').dependencies.react).toBe('^19.2.0')
+		expect(readJson('apps/dashboard/package.json').dependencies.react).toBe('^19.2.8')
+		expect(readJson('apps/shell/package.json').dependencies.react).toBe('^19.2.8')
 	})
 
 	it('says how many ranges it left alone', async () => {
@@ -253,7 +283,7 @@ describe('upgrade', () => {
 		await upgrade({})
 
 		expect(readJson('apps/dashboard/package.json').dependencies.react).toBe('workspace:*')
-		expect(readJson('apps/shell/package.json').dependencies.react).toBe('^19.2.0')
+		expect(readJson('apps/shell/package.json').dependencies.react).toBe('^19.2.8')
 	})
 
 	function recordAsGenerated(rel: string, content: string) {

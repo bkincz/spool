@@ -5,7 +5,7 @@ import { createRequire } from 'node:module'
 import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from './config.js'
 import { packageName } from '../util/names.js'
 
-export const PNPM_VERSION = '11.6.0'
+export const PNPM_VERSION = '11.25.0'
 
 const requirePackage = createRequire(import.meta.url)
 
@@ -30,13 +30,13 @@ export const CLI_VERSION = readCliVersion()
  * every change, so a bump here gets verified end to end.
  */
 export const TOOLCHAIN = {
-	react: '^19.2.0',
-	'react-dom': '^19.2.0',
+	react: '^19.2.8',
+	'react-dom': '^19.2.8',
 	'@types/react': '^19.2.0',
 	'@types/react-dom': '^19.2.0',
-	svelte: '^5.56.0',
+	svelte: '^5.57.0',
 	'@sveltejs/vite-plugin-svelte': '^7.1.0',
-	vue: '^3.5.0',
+	vue: '^3.5.42',
 	'@vitejs/plugin-vue': '^6.0.0',
 	'@types/node': '^26.0.0',
 	'@module-federation/vite': '^1.16.0',

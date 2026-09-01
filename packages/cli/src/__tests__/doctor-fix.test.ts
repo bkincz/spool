@@ -90,7 +90,7 @@ describe('doctor --fix', () => {
 
 		await doctor({ fix: true })
 
-		expect(readJson(DASHBOARD).dependencies['react-dom']).toBe('^19.2.0')
+		expect(readJson(DASHBOARD).dependencies['react-dom']).toBe('^19.2.8')
 	})
 
 	it('aligns a mismatched shared dep on the highest range in the workspace', async () => {
@@ -118,7 +118,7 @@ describe('doctor --fix', () => {
 		await doctor({ fix: true })
 
 		expect(readJson(DASHBOARD).dependencies.react).toBe('workspace:*')
-		expect(readJson(SHELL).dependencies.react).toBe('^19.2.0')
+		expect(readJson(SHELL).dependencies.react).toBe('^19.2.8')
 	})
 
 	it('writes nothing with --dry-run', async () => {
