@@ -82,6 +82,7 @@ program
 	.description('Build every app for production (remotes before hosts)')
 	.option('--only <list>', 'comma-separated subset of apps')
 	.option('--env <name>', "select each remote's urls.<name> for this build")
+	.option('--concurrency <n>', 'apps to build at once (default: one less than the cores)')
 	.action(build)
 
 program

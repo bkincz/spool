@@ -30,7 +30,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | ------------------------------- | ------------------------------------------------------------------------ |
 | `spool create [dir]`            | Scaffold a workspace                                                     |
 | `spool dev [--only <list>]`     | Run all apps together, remotes first                                     |
-| `spool build [--only] [--env]`  | Production build, remotes before hosts                                   |
+| `spool build [--only] [--env]`  | Production build. Remotes first, then hosts, each tier in parallel      |
 | `spool preview [--only <list>]` | Serve the built apps locally                                             |
 | `spool add <name>`              | Add an app and wire it in                                                |
 | `spool addon [list]`            | Add extras to an existing workspace                                      |
@@ -114,6 +114,8 @@ Typos fail loudly instead of being silently dropped, and `spool doctor` catches 
 `spool upgrade` never overwrites your edits. Spool hashes every file it writes into `.spool/generated.json`, so a later run can tell its own output from yours. Edited files are offered, not replaced, and a keep is remembered. `--force` skips the asking; with no terminal nothing is overwritten.
 
 `spool doctor --fix` repairs what it can: a shared dep an app forgot to declare, apps that disagree on a version, a framework runtime missing from `shared`. Versions converge on the highest range already in the workspace, so a workspace ahead of spool stays ahead. Anything it cannot compare is left alone and still reported. `--dry-run` shows the changes first.
+
+Apps in a tier build at once, since a host bakes in a remote url rather than reading its output. `--concurrency <n>` caps it, so the default leaves atleast one core free.
 
 ## The app list
 

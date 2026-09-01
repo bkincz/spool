@@ -7,7 +7,8 @@ import pc from 'picocolors'
 import type { Workspace } from './workspace.js'
 import { HELPER_FILE, type AppConfig } from './config.js'
 import { existsSync, readFileSync } from 'node:fs'
-import { run, runShell, spawnProcess, killTree } from '../util/exec.js'
+import { availableParallelism } from 'node:os'
+import { runCaptured, runShell, spawnProcess, killTree } from '../util/exec.js'
 import { waitForManifest } from '../util/net.js'
 import { CliError } from '../util/errors.js'
 import { log } from '../util/logger.js'
@@ -557,27 +558,85 @@ function spawnApp(
 /*
  *   BUILD
  ***************************************************************************************************/
-export async function buildAll(ws: Workspace, only?: string[], env?: string): Promise<void> {
+function defaultConcurrency(): number {
+	return Math.max(1, availableParallelism() - 1)
+}
+
+export async function buildAll(
+	ws: Workspace,
+	only?: string[],
+	env?: string,
+	concurrency = defaultConcurrency()
+): Promise<void> {
 	const apps = selectApps(ws, only)
-	const ordered = [...remotesOf(apps), ...hostsOf(apps)]
 	if (env !== undefined) requireEnvSupport(ws, apps, env)
 	// SPOOL_ENV picks each remote's `urls` entry inside spool.vite.ts.
 	const spawnEnv = env === undefined ? {} : { env: { ...process.env, SPOOL_ENV: env } }
+	const tiers = [remotesOf(apps), hostsOf(apps)].filter(tier => tier.length)
 
-	for (const { name, app } of ordered) {
-		log.step(`building ${pc.bold(name)} (${app.type})${env ? pc.dim(` for ${env}`) : ''}`)
-		try {
-			await run(ws.manifest.packageManager, ['run', 'build'], {
-				cwd: join(ws.root, app.path),
-				...spawnEnv,
-			})
-		} catch {
-			throw new CliError(
-				`Build failed for "${name}". Run \`${filterBuildCommand(ws.manifest.packageManager, name)}\` to see the full output.`
+	for (const tier of tiers) {
+		await buildTier(ws, tier, spawnEnv, env, concurrency)
+	}
+
+	log.success(`built ${apps.length} app(s)`)
+}
+
+interface BuildFailure {
+	name: string
+	output: string
+}
+
+async function buildTier(
+	ws: Workspace,
+	tier: NamedApp[],
+	spawnEnv: { env?: NodeJS.ProcessEnv },
+	env: string | undefined,
+	concurrency: number
+): Promise<void> {
+	const queue = [...tier]
+	const failures: BuildFailure[] = []
+
+	const worker = async (): Promise<void> => {
+		for (; ;) {
+			const next = queue.shift()
+			if (!next) return
+
+			const { name, app } = next
+			log.step(`building ${pc.bold(name)} (${app.type})${env ? pc.dim(` for ${env}`) : ''}`)
+
+			const { code, output } = await runCaptured(
+				ws.manifest.packageManager,
+				['run', 'build'],
+				{ cwd: join(ws.root, app.path), ...spawnEnv }
 			)
+
+			if (code !== 0) {
+				failures.push({ name, output })
+				continue
+			}
+
+			if (output.trim()) log.plain(output.trimEnd())
 		}
 	}
-	log.success(`built ${ordered.length} app(s)`)
+
+	const workers = Math.max(1, Math.min(concurrency, tier.length))
+	await Promise.all(Array.from({ length: workers }, worker))
+
+	if (!failures.length) return
+
+	for (const failure of failures) {
+		log.error(`${failure.name} failed to build:`)
+		if (failure.output.trim()) log.plain(failure.output.trimEnd())
+	}
+
+	const names = failures.map(failure => `"${failure.name}"`).join(', ')
+	const reproduce = filterBuildCommand(ws.manifest.packageManager, failures[0]!.name)
+
+	throw new CliError(
+		failures.length === 1
+			? `Build failed for ${names}. Run \`${reproduce}\` to reproduce it.`
+			: `Builds failed for ${names}.`
+	)
 }
 
 /** --env resolves inside the generated helper, so an old helper would silently ignore it. */

@@ -92,24 +92,30 @@ describe('build', () => {
 		expect(buildAll).toHaveBeenCalledWith(
 			expect.objectContaining({ root: dir }),
 			undefined,
+			undefined,
 			undefined
 		)
 	})
 
 	it('passes the only filter and env through', async () => {
 		await build({ only: 'dashboard', env: 'staging' })
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), ['dashboard'], 'staging')
+		expect(buildAll).toHaveBeenCalledWith(
+			expect.anything(),
+			['dashboard'],
+			'staging',
+			undefined
+		)
 	})
 
 	it('treats an empty --env as no env', async () => {
 		await build({ env: '' })
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined)
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, undefined, undefined)
 	})
 
 	it('reads an exported SPOOL_ENV when --env is absent', async () => {
 		process.env.SPOOL_ENV = 'staging'
 		await build({})
-		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging')
+		expect(buildAll).toHaveBeenCalledWith(expect.anything(), undefined, 'staging', undefined)
 	})
 })
 
