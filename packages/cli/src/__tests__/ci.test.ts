@@ -23,7 +23,7 @@ let cwd: string
 beforeEach(async () => {
 	dir = freshDir('spool-ci-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',
@@ -66,7 +66,7 @@ describe('ci', () => {
 		await ci({})
 		writeFileSync(workflow('shell'), 'user edited\n')
 
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		await ci({})
 		expect(readFileSync(workflow('shell'), 'utf8')).toBe('user edited\n')
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('--force'))
@@ -81,7 +81,7 @@ describe('ci', () => {
 		delete manifest.apps.dashboard.deploy
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
 
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		await ci({})
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))
 		expect(existsSync(workflow('dashboard'))).toBe(false)

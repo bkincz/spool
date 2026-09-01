@@ -60,7 +60,7 @@ function setDep(rel: string, dep: string, range: string | null) {
 beforeEach(async () => {
 	dir = freshDir('spool-doctor-fix-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 
 	await create(dir, {
 		name: 'acme',
@@ -131,8 +131,8 @@ describe('doctor --fix', () => {
 	})
 
 	it('clears the diagnostic it fixed', async () => {
-		const step = vi.spyOn(log, 'step').mockImplementation(() => { })
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		setDep(DASHBOARD, 'react-dom', null)
 
 		await doctor({ fix: true })
@@ -142,7 +142,7 @@ describe('doctor --fix', () => {
 	})
 
 	it('points at --fix instead of fixing when the flag is absent', async () => {
-		const step = vi.spyOn(log, 'step').mockImplementation(() => { })
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
 		setDep(DASHBOARD, 'react-dom', null)
 
 		await doctor({})
@@ -152,7 +152,7 @@ describe('doctor --fix', () => {
 	})
 
 	it('says nothing about --fix when no diagnostic carries one', async () => {
-		const step = vi.spyOn(log, 'step').mockImplementation(() => { })
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
 
 		await doctor({})
 
@@ -175,7 +175,7 @@ describe('doctor --fix on deps spool writes itself', () => {
 	})
 
 	it('names the apps that disagree', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		setDevDep(DASHBOARD, 'typescript', '^5.6.3')
 
 		await doctor({})

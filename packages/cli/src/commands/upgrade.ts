@@ -6,12 +6,10 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { findWorkspaceRoot, type Workspace } from '../core/workspace.js'
 import { MANIFEST_FILE, parseManifest } from '../core/config.js'
-import { appDependencies, PNPM_VERSION, rootDevDependencies } from '../core/versions.js'
+import { appDependencies, NODE_RANGE, PNPM_VERSION, rootDevDependencies } from '../core/versions.js'
 import {
 	appConfigFiles,
-	helperFile,
 	hostWiringFiles,
-	NODE_RANGE,
 	workspaceScripts,
 	workspaceFiles,
 } from '../core/generators.js'
@@ -19,6 +17,7 @@ import * as p from '@clack/prompts'
 import { dependencyHome, editJsonFile, type PackageJsonShape } from '../core/packages.js'
 import { Provenance } from '../core/provenance.js'
 import { resolveRanges, type RangeInfo } from '../core/ranges.js'
+import { helperFiles } from '../core/templates/helpers.js'
 import { formatFiles } from '../core/format.js'
 import { CliError } from '../util/errors.js'
 import { log } from '../util/logger.js'
@@ -119,7 +118,7 @@ async function loadForUpgrade(writer: ChangeWriter): Promise<Workspace> {
 
 async function upgradeRoot(ctx: UpgradeContext): Promise<void> {
 	const { ws, writer, pin } = ctx
-	const helper = await formatFiles(helperFile())
+	const helper = await formatFiles(helperFiles())
 
 	for (const [rel, content] of Object.entries(helper)) {
 		await writer.replaceGenerated(ws.root, rel, content, 'workspace')

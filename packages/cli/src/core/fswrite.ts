@@ -4,7 +4,7 @@
 import { mkdir, writeFile, access } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { FileMap } from './generators.js'
+import type { FileMap } from './filemap.js'
 import type { Provenance } from './provenance.js'
 
 /*

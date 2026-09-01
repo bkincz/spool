@@ -3,7 +3,7 @@
  ***************************************************************************************************/
 import { basename } from 'node:path'
 import type { AppConfig, Framework, Manifest } from '../config.js'
-import type { FileMap } from '../generators.js'
+import type { FileMap } from '../filemap.js'
 import { remoteRefs, type RemoteRef } from './index.js'
 
 /*

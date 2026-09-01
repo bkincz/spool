@@ -1,6 +1,6 @@
 import type { Framework, Manifest } from '../config.js'
 import { SENTRY_SDK } from '../versions.js'
-import type { FileMap } from '../generators.js'
+import type { FileMap } from '../filemap.js'
 
 export const SENTRY_INIT_FILE = 'src/sentry.ts'
 

@@ -52,7 +52,7 @@ function ageWorkspace() {
 beforeEach(async () => {
 	dir = freshDir('spool-upgrade-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',
@@ -118,7 +118,7 @@ describe('upgrade', () => {
 	})
 
 	it('leaves a customized vite config alone and says so', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		writeFileSync(join(dir, 'apps/shell/vite.config.ts'), '// my hand-rolled config\n')
 		await upgrade({})
 
@@ -127,7 +127,7 @@ describe('upgrade', () => {
 	})
 
 	it('leaves a customized runtime helper alone and says so', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		writeFileSync(join(dir, 'spool.vite.ts'), '// my custom helper\n')
 		await upgrade({})
 
@@ -152,7 +152,7 @@ describe('upgrade', () => {
 	})
 
 	it('is idempotent: a fresh scaffold reports nothing to do', async () => {
-		const success = vi.spyOn(log, 'success').mockImplementation(() => { })
+		const success = vi.spyOn(log, 'success').mockImplementation(() => {})
 		await upgrade({})
 		expect(success).toHaveBeenCalledWith('already up to date')
 	})
@@ -241,7 +241,7 @@ describe('upgrade', () => {
 	})
 
 	it('says how many ranges it left alone', async () => {
-		const step = vi.spyOn(log, 'step').mockImplementation(() => { })
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
 		const pkg = readJson('apps/dashboard/package.json')
 		pkg.dependencies.react = 'workspace:*'
 		writeFileSync(join(dir, 'apps/dashboard/package.json'), JSON.stringify(pkg))
@@ -311,7 +311,7 @@ describe('upgrade', () => {
 	})
 
 	it('leaves an edited file alone even when it still carries the marker', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		const edited = `${read('spool.vite.ts')}\n// my own helper on top\n`
 		writeFileSync(join(dir, 'spool.vite.ts'), edited)
 
@@ -332,7 +332,7 @@ describe('upgrade', () => {
 	})
 
 	it('will not overwrite a marked file it has no record of', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, PROVENANCE_FILE))
 		const customised = `${read('apps/shell/vite.config.ts')}\n// my own plugin\n`
 		writeFileSync(join(dir, 'apps/shell/vite.config.ts'), customised)
@@ -344,7 +344,7 @@ describe('upgrade', () => {
 	})
 
 	it('still names a file with no marker as the user’s own', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, PROVENANCE_FILE))
 		writeFileSync(join(dir, 'spool.vite.ts'), '// mine, no marker\n')
 
@@ -364,7 +364,7 @@ describe('upgrade', () => {
 	})
 
 	it('stops warning about a file it has already conceded', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, PROVENANCE_FILE))
 		writeFileSync(join(dir, 'spool.vite.ts'), '// mine, no marker\n')
 
@@ -388,7 +388,7 @@ describe('upgrade', () => {
 		expect(before).not.toBe(aged)
 	})
 	it('skips apps whose folders are missing', async () => {
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, 'apps/dashboard'), { recursive: true })
 		await upgrade({})
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))

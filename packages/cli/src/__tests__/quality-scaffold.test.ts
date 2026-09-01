@@ -25,7 +25,7 @@ const readJson = (rel: string) => JSON.parse(read(rel))
 beforeEach(async () => {
 	dir = freshDir('spool-quality-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 
 	await create(dir, {
 		name: 'acme',

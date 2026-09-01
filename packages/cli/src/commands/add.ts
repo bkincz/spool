@@ -13,7 +13,8 @@ import {
 	type Framework,
 	type Manifest,
 } from '../core/config.js'
-import { appFiles, defaultExposes, helperFile, hostWiringFiles } from '../core/generators.js'
+import { appFiles, defaultExposes, hostWiringFiles } from '../core/generators.js'
+import { helperFiles } from '../core/templates/helpers.js'
 import { TEMPLATES, remoteRef, remoteRefs } from '../core/templates/index.js'
 import { appDependencies, FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
@@ -71,7 +72,7 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 	// Restore the runtime helper if it's missing (workspaces from older spool
 	// versions). The new app's vite config imports it.
 	const provenance = Provenance.load(ws.root)
-	const restored = await writeFiles(ws.root, await formatFiles(helperFile()), { provenance })
+	const restored = await writeFiles(ws.root, await formatFiles(helperFiles()), { provenance })
 	if (restored.written.length) {
 		log.warn(
 			`${HELPER_FILE} was missing and has been restored. Apps scaffolded before it existed keep their old baked vite configs; re-create them or port them to the helper.`

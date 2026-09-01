@@ -19,12 +19,11 @@ import {
 	SENTRY_VITE_PLUGIN_VERSION,
 	SHARED_EXTRAS,
 } from '../core/versions.js'
-import { yamlKey } from '../core/generators.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { installDependencies } from '../core/install.js'
 import { dependencyHome, type PackageJsonShape } from '../core/packages.js'
-import { packageName } from '../util/names.js'
+import { packageName, yamlKey } from '../util/names.js'
 import { log } from '../util/logger.js'
 
 /*

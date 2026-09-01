@@ -49,7 +49,7 @@ export class Provenance {
 		private readonly root: string,
 		private readonly files: Record<string, string>,
 		private readonly owned: Set<string>
-	) { }
+	) {}
 
 	/** A record spool cannot read is treated as absent, never as a conflict. */
 	static load(root: string): Provenance {

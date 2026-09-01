@@ -26,7 +26,7 @@ const load = (rel: string) => import(/* @vite-ignore */ pathToFileURL(join(dir, 
 
 beforeEach(async () => {
 	dir = freshDir('spool-ws-')
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',

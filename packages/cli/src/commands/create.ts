@@ -122,8 +122,8 @@ export async function create(dir: string | undefined, opts: CreateOptions): Prom
 			installed
 				? 'Dependencies installed.'
 				: pc.yellow(
-					`Install failed. Run \`${manifest.packageManager} install\` in the new folder to finish setup.`
-				)
+						`Install failed. Run \`${manifest.packageManager} install\` in the new folder to finish setup.`
+					)
 		)
 	} else {
 		log.step(
@@ -434,6 +434,6 @@ function validateRemoteList(value: string): string | undefined {
 		const error = validateSpec(remote, 'remote name')
 		if (error) return error
 	}
-	
+
 	return undefined
 }

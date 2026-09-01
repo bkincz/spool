@@ -3,7 +3,7 @@
  ***************************************************************************************************/
 import { join } from 'node:path'
 import { requireWorkspace } from '../core/workspace.js'
-import { ciWorkflows } from '../core/generators.js'
+import { ciWorkflows } from '../core/templates/workflows.js'
 import { readPackageJson } from '../core/packages.js'
 import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'

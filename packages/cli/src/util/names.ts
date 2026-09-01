@@ -27,6 +27,9 @@ export function remoteEnvVar(name: string): string {
 	return `SPOOL_REMOTE_${name.toUpperCase().replace(/-/g, '_')}`
 }
 
+/** YAML keys starting with a reserved indicator (like @scope) need quoting. */
+export const yamlKey = (name: string): string => (name.startsWith('@') ? `"${name}"` : name)
+
 /** Splits a comma-separated list, dropping empty entries. */
 export function splitList(value: string): string[] {
 	return value

@@ -39,7 +39,7 @@ function editGeneratedFiles(): { helper: string; config: string } {
 beforeEach(async () => {
 	dir = freshDir('spool-prompt-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 
 	await create(dir, {
 		name: 'acme',

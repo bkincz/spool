@@ -21,8 +21,8 @@ import {
 	testNotes,
 	vitestConfig,
 } from './templates/quality.js'
-import { NODE_RANGE, type FileMap } from './generators.js'
-import { TOOLCHAIN } from './versions.js'
+import type { FileMap } from './filemap.js'
+import { NODE_RANGE, TOOLCHAIN } from './versions.js'
 import { splitList } from '../util/names.js'
 import { fail } from '../util/logger.js'
 

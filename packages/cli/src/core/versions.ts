@@ -7,6 +7,9 @@ import { packageName } from '../util/names.js'
 
 export const PNPM_VERSION = '11.25.0'
 
+/** Within vite's supported range; Node 20 is EOL and pnpm 11 needs 22.13+. */
+export const NODE_RANGE = '>=22.12.0'
+
 const requirePackage = createRequire(import.meta.url)
 
 /** The CLI's own version; the bundled dist and the src tree sit at different

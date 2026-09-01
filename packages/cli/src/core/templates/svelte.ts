@@ -11,7 +11,7 @@ import {
 	STATE_STORE_IMPORT,
 } from './bridges.js'
 import { shellHostApp } from './shell.js'
-import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './index.js'
+import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './types.js'
 
 export const svelteTemplate: FrameworkTemplate = {
 	remoteContract: 'mount',
