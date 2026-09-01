@@ -3,7 +3,15 @@
  ***************************************************************************************************/
 import { HELPER_FILE, type AppConfig, type Framework, type Manifest } from './config.js'
 import { PRETTIER_OPTIONS } from './format.js'
-import { appDependencies, CLI_VERSION, PNPM_VERSION, TOOLCHAIN } from './versions.js'
+import { appDependencies, PNPM_VERSION, rootDevDependencies } from './versions.js'
+import {
+	ALIAS_FILE,
+	remoteAliasModule,
+	remoteStubs,
+	TEST_SCRIPTS,
+	typeCheckAll,
+	vitestConfig,
+} from './templates/quality.js'
 import {
 	NO_EXTRAS,
 	TEMPLATES,
@@ -102,12 +110,26 @@ export const NODE_RANGE = '>=22.12.0'
 /** YAML keys starting with a reserved indicator (like @scope) need quoting. */
 export const yamlKey = (name: string): string => (name.startsWith('@') ? `"${name}"` : name)
 
-/** Root scripts every workspace gets; upgrade adds missing ones to old scaffolds. */
-export const WORKSPACE_SCRIPTS = {
-	dev: 'spool dev',
-	build: 'spool build',
-	preview: 'spool preview',
-	doctor: 'spool doctor',
+export function workspaceScripts(m: Manifest): Record<string, string> {
+	const scripts: Record<string, string> = {
+		dev: 'spool dev',
+		build: 'spool build',
+		preview: 'spool preview',
+		doctor: 'spool doctor',
+		'type-check': typeCheckAll(m),
+	}
+
+	if (m.addons.includes('lint')) scripts.lint = 'eslint .'
+	if (m.addons.includes('test')) scripts.test = testAll(m)
+
+	return scripts
+}
+
+/** Run every package that has a test script, however this manager spells it. */
+function testAll(m: Manifest): string {
+	if (m.packageManager === 'npm') return 'npm run test --workspaces --if-present'
+	if (m.packageManager === 'yarn') return 'yarn workspaces foreach -A run test'
+	return 'pnpm -r test'
 }
 
 function workspacePackageJson(m: Manifest): string {
@@ -117,22 +139,17 @@ function workspacePackageJson(m: Manifest): string {
 		private: true,
 		type: 'module',
 		engines: { node: NODE_RANGE },
-		scripts: { ...WORKSPACE_SCRIPTS },
+		scripts: workspaceScripts(m),
 	}
+
 	if (m.packageManager === 'pnpm') {
 		// pnpm/action-setup and corepack read the version from here.
 		pkg.packageManager = `pnpm@${PNPM_VERSION}`
 	} else {
 		pkg.workspaces = ['apps/*', 'packages/*']
 	}
-	// The workspace carries its own spool, so a fresh clone runs `<pm> dev`
-	// with no global install. typescript and @types/node let the root
-	// tsconfig type-check spool.vite.ts, which uses node builtins.
-	pkg.devDependencies = {
-		'@bkincz/spool': `^${CLI_VERSION}`,
-		'@types/node': TOOLCHAIN['@types/node'],
-		typescript: TOOLCHAIN.typescript,
-	}
+
+	pkg.devDependencies = sortKeys(rootDevDependencies(m))
 	return json(pkg)
 }
 
@@ -402,6 +419,11 @@ export function appFiles(
 	if (refs.length) {
 		files['src/remotes.d.ts'] = remoteTypings(refs)
 	}
+	if (m.addons.includes('test')) {
+		files['vitest.config.ts'] = vitestConfig()
+		files[ALIAS_FILE] = remoteAliasModule(m, app)
+		Object.assign(files, remoteStubs(m, app))
+	}
 	return files
 }
 
@@ -428,10 +450,17 @@ export function hostWiringFiles(m: Manifest, host: AppConfig): FileMap {
 	const files: FileMap = {}
 	if (host.type !== 'host') return files
 	if (host.remotes.length) files['src/remotes.d.ts'] = remoteTypings(remoteRefs(m, host))
+
 	// The registry and the <Remote> primitive both depend on the host's remotes
 	// (the primitive imports the react bridge only when one needs it), so both
 	// are regenerated together whenever the remotes change.
 	if (m.addons.includes('shell')) Object.assign(files, shellHostFiles(m, host))
+
+	// Only the alias map names the remotes; vitest.config.ts stays the user’s.
+	if (m.addons.includes('test')) {
+		files[ALIAS_FILE] = remoteAliasModule(m, host)
+		Object.assign(files, remoteStubs(m, host))
+	}
 	return files
 }
 
@@ -445,11 +474,13 @@ function appPackageJson(
 	extras: TemplateExtras
 ): string {
 	const { dependencies, devDependencies } = appDependencies(m, app)
+
 	// The example button lives in the ladle ui workspace package; npm and yarn
 	// link workspace packages by bare name, pnpm needs the workspace protocol.
 	if (extras.uiButton && app.framework === 'react' && app.type === 'remote') {
 		dependencies.ui = m.packageManager === 'pnpm' ? 'workspace:*' : '*'
 	}
+
 	return json({
 		name: appName,
 		version: '0.0.0',
@@ -460,6 +491,8 @@ function appPackageJson(
 			dev: 'vite',
 			build: 'vite build',
 			preview: 'vite preview',
+			'type-check': 'tsc --noEmit',
+			...(m.addons.includes('test') ? TEST_SCRIPTS : {}),
 		},
 		dependencies: sortKeys(dependencies),
 		devDependencies: sortKeys(devDependencies),
@@ -488,6 +521,7 @@ function appTsConfig(framework: Framework): string {
 function viteConfig(appName: string, app: AppConfig, sentry: boolean): string {
 	const plugin = TEMPLATES[app.framework].vitePlugin
 	const sentryPlugin = sentry ? sentryVitePlugin() : undefined
+
 	const imports = [
 		'import { defineConfig } from "vite";',
 		'import { resolve as resolvePath } from "node:path";',
@@ -496,11 +530,13 @@ function viteConfig(appName: string, app: AppConfig, sentry: boolean): string {
 		...(sentryPlugin ? [sentryPlugin.importLine] : []),
 		`import { spoolApp } from "${helperImport(app.path)}";`,
 	].join('\n')
+
 	const plugins = [
 		`${plugin.call}`,
 		'federation(app.federation)',
 		...(sentryPlugin ? [sentryPlugin.entry] : []),
 	]
+
 	return `${imports}
 
 // Generated by spool. Wiring comes from spool.json via spool.vite.ts at

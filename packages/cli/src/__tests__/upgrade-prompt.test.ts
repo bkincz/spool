@@ -2,11 +2,12 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { readFileSync, writeFileSync } from 'node:fs'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import * as p from '@clack/prompts'
 import { create } from '../commands/create.js'
 import { upgrade } from '../commands/upgrade.js'
+import { PROVENANCE_FILE } from '../core/provenance.js'
 import { freshDir, removeDir } from './helpers.js'
 
 /*
@@ -38,9 +39,8 @@ function editGeneratedFiles(): { helper: string; config: string } {
 beforeEach(async () => {
 	dir = freshDir('spool-prompt-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => {})
+	vi.spyOn(console, 'log').mockImplementation(() => { })
 
-	// Scaffolded without a tty, so create takes none of its interactive paths.
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',
@@ -103,6 +103,31 @@ describe('upgrade overwrite prompt', () => {
 		expect(p.select).toHaveBeenCalledTimes(1)
 		expect(read(HELPER)).toBe(helper)
 		expect(read('apps/shell/vite.config.ts')).toBe(config)
+	})
+
+	it('stops asking about a file after the answer is keep', async () => {
+		const { helper } = editGeneratedFiles()
+		vi.mocked(p.select).mockResolvedValue('keep')
+
+		await upgrade({})
+		vi.mocked(p.select).mockClear()
+		await upgrade({})
+
+		expect(p.select).not.toHaveBeenCalled()
+		expect(read(HELPER)).toBe(helper)
+		expect(JSON.parse(read(PROVENANCE_FILE)).owned).toContain(HELPER)
+	})
+
+	it('asks about a marked file it has no record of', async () => {
+		editGeneratedFiles()
+		rmSync(join(dir, PROVENANCE_FILE))
+		vi.mocked(p.select).mockResolvedValue('overwrite')
+
+		await upgrade({})
+
+		expect(p.select).toHaveBeenCalledWith(
+			expect.objectContaining({ message: expect.stringContaining('predates') })
+		)
 	})
 
 	it('does not ask at all with --force', async () => {

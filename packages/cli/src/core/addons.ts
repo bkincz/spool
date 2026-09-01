@@ -11,6 +11,15 @@ import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_FILE } from './templates/bridges.js'
 import { sentryFiles, sentryNotes } from './templates/sentry.js'
 import { shellRuntimeFiles, shellHostFiles, shellNotes } from './templates/shell.js'
+import {
+	ALIAS_FILE,
+	eslintConfig,
+	lintNotes,
+	remoteAliasModule,
+	remoteStubs,
+	testNotes,
+	vitestConfig,
+} from './templates/quality.js'
 import { NODE_RANGE, type FileMap } from './generators.js'
 import { TOOLCHAIN } from './versions.js'
 import { splitList } from '../util/names.js'
@@ -61,7 +70,25 @@ function shellFiles(m: Manifest): FileMap {
 	return files
 }
 
-export const ADDONS: Record<'ladle' | 'playwright' | 'state' | 'sentry' | 'shell', Addon> = {
+function testFiles(m: Manifest): FileMap {
+	const files: FileMap = {}
+
+	for (const app of Object.values(m.apps)) {
+		files[`${app.path}/vitest.config.ts`] = vitestConfig()
+		files[`${app.path}/${ALIAS_FILE}`] = remoteAliasModule(m, app)
+
+		for (const [rel, content] of Object.entries(remoteStubs(m, app))) {
+			files[`${app.path}/${rel}`] = content
+		}
+	}
+
+	return files
+}
+
+export const ADDONS: Record<
+	'ladle' | 'playwright' | 'lint' | 'test' | 'state' | 'sentry' | 'shell',
+	Addon
+> = {
 	ladle: {
 		label: 'Ladle',
 		hint: 'design-system package in packages/ui with a component workshop',
@@ -89,6 +116,26 @@ export const ADDONS: Record<'ladle' | 'playwright' | 'state' | 'sentry' | 'shell
 		notes: m => [
 			`playwright: run \`npx playwright install\` once, then ${runIn(m, 'e2e', 'test')}`,
 		],
+	},
+	lint: {
+		label: 'ESLint',
+		hint: 'one flat config at the root, with the plugins your frameworks need',
+		unavailable: () => undefined,
+		present: (_root, m) => m.addons.includes('lint'),
+		apply: m => enableAddon(m, 'lint'),
+		files: m => ({ 'eslint.config.js': eslintConfig(m) }),
+		allowBuilds: [],
+		notes: m => lintNotes(m),
+	},
+	test: {
+		label: 'Vitest',
+		hint: 'unit tests per app, with each host’s remotes stubbed out',
+		unavailable: () => undefined,
+		present: (_root, m) => m.addons.includes('test'),
+		apply: m => enableAddon(m, 'test'),
+		files: m => testFiles(m),
+		allowBuilds: [],
+		notes: m => testNotes(m),
 	},
 	state: {
 		label: 'Shared state',

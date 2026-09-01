@@ -57,7 +57,7 @@ function spoolRanges(ws: Workspace): Map<string, string> {
 		}
 	}
 
-	put(rootDevDependencies())
+	put(rootDevDependencies(ws.manifest))
 	for (const app of Object.values(ws.manifest.apps)) {
 		const { dependencies, devDependencies } = appDependencies(ws.manifest, app)
 		put(dependencies)

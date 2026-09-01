@@ -97,15 +97,52 @@ export const SENTRY_SDK: Record<Framework, string> = {
 	vue: '@sentry/vue',
 }
 
+export const LINT_DEPS: Record<string, string> = {
+	eslint: '^10.9.1',
+	'@eslint/js': '^10.0.1',
+	'typescript-eslint': '^8.69.0',
+	globals: '^17.11.0',
+}
+
+export const LINT_FRAMEWORK_DEPS: Record<Framework, Record<string, string>> = {
+	react: { 'eslint-plugin-react-hooks': '^7.1.1' },
+	svelte: { 'eslint-plugin-svelte': '^3.23.0' },
+	vue: { 'eslint-plugin-vue': '^10.10.0' },
+}
+
+export const TEST_DEPS: Record<string, string> = {
+	vitest: '^4.1.11',
+	'@vitest/coverage-v8': '^4.1.11',
+	'happy-dom': '^20.12.0',
+}
+
+export const TEST_FRAMEWORK_DEPS: Record<Framework, Record<string, string>> = {
+	react: {
+		'@testing-library/react': '^16.3.3',
+		'@testing-library/dom': '^10.4.1',
+	},
+	svelte: { '@testing-library/svelte': '^5.4.2' },
+	vue: { '@testing-library/vue': '^8.1.0' },
+}
+
 export const SENTRY_VERSION = '^10.64.0'
 export const SENTRY_VITE_PLUGIN_VERSION = '^5.3.0'
 
-export function rootDevDependencies(): Record<string, string> {
-	return {
+export function rootDevDependencies(m: Manifest): Record<string, string> {
+	const deps: Record<string, string> = {
 		typescript: TOOLCHAIN.typescript,
 		'@types/node': TOOLCHAIN['@types/node'],
 		'@bkincz/spool': `^${CLI_VERSION}`,
 	}
+
+	if (m.addons.includes('lint')) {
+		Object.assign(deps, LINT_DEPS)
+		for (const framework of new Set(Object.values(m.apps).map(app => app.framework))) {
+			Object.assign(deps, LINT_FRAMEWORK_DEPS[framework])
+		}
+	}
+
+	return deps
 }
 
 export function appDependencies(
@@ -138,6 +175,9 @@ export function appDependencies(
 	if (m.addons.includes('sentry')) {
 		dependencies[SENTRY_SDK[app.framework]] = SENTRY_VERSION
 		devDependencies['@sentry/vite-plugin'] = SENTRY_VITE_PLUGIN_VERSION
+	}
+	if (m.addons.includes('test')) {
+		Object.assign(devDependencies, TEST_DEPS, TEST_FRAMEWORK_DEPS[app.framework])
 	}
 	put(COMMON_DEV_DEPS, devDependencies)
 	return { dependencies, devDependencies }
