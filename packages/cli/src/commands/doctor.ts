@@ -7,6 +7,7 @@ import { requireWorkspace, saveManifest, type Workspace } from '../core/workspac
 import { MANIFEST_FILE } from '../core/config.js'
 import { diagnose, diagnoseRemotes, type DepWrite, type Diagnostic } from '../core/doctor.js'
 import { dependencyHome, editJsonFile } from '../core/packages.js'
+import { ROOT_LABEL } from '../core/ranges.js'
 import { log } from '../util/logger.js'
 
 /*
@@ -89,12 +90,12 @@ async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean):
 	}
 
 	for (const [name, writes] of byApp) {
-		const app = ws.manifest.apps[name]
+		const dir = packageDir(ws, name)
 
-		if (!app) continue
+		if (dir === undefined) continue
 
 		const changes = await editJsonFile(
-			join(ws.root, app.path, 'package.json'),
+			join(dir, 'package.json'),
 			pkg => {
 				const done: string[] = []
 
@@ -125,4 +126,12 @@ async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean):
 
 	log.step(`Review the changes with git, then run \`${ws.manifest.packageManager} install\`.`)
 	return applied
+}
+
+function packageDir(ws: Workspace, name: string): string | undefined {
+	if (name === ROOT_LABEL) return ws.root
+
+	const app = ws.manifest.apps[name]
+
+	return app ? join(ws.root, app.path) : undefined
 }

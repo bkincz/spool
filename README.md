@@ -34,11 +34,11 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `spool preview [--only <list>]` | Serve the built apps locally                                             |
 | `spool add <name>`              | Add an app and wire it in                                                |
 | `spool addon [list]`            | Add extras to an existing workspace                                      |
-| `spool remove <name> [--files]` | Remove an app and unwire it from hosts                                   |
+| `spool remove <name> [--files]` | Remove an app and unwire it from hosts. `--files` asks before deleting   |
 | `spool deploy [--only] [--env]` | Run each app's `deploy` command, remotes first                           |
 | `spool ci [--force]`            | Generate a path-filtered GitHub deploy workflow per deployable app       |
-| `spool upgrade [--dry-run]`     | Regenerate spool-owned files and sync the toolchain to the installed CLI |
-| `spool doctor [--remote]`       | Check ports, wiring, and shared deps. `--remote` also probes deployed urls |
+| `spool upgrade [--dry-run]`     | Regenerate spool-owned files and move dependencies forward to match the workspace |
+| `spool doctor [--fix]`          | Check ports, wiring, and dependencies. `--fix` repairs what it safely can |
 
 ### create
 
@@ -98,6 +98,8 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 
 Typos fail loudly instead of being silently dropped, and `spool doctor` catches the rest after hand-editing.
 
+`spool doctor --fix` repairs the dependency problems it finds such as a shared dep an app forgot to declare, apps that disagree on a version, or a framework runtime missing from `shared` to name a few examples. Versions converge on the highest range already in the workspace, never on whatever this CLI happened to ship, so a workspace ahead of spool stays ahead. Anything spool cannot compare, like a `workspace:*` link that packages disagree on, is left alone and still reported. Add `--dry-run` to see the changes first.
+
 ## Frameworks
 
 Mix react, svelte, and vue freely. Every app picks its own framework. React remotes expose a component, svelte and vue remotes expose a mount function, and hosts consume each remote by its contract (non-react hosts get a small react bridge). Sharing applies per app: entries an app does not declare in its own package.json are dropped from its federation config, so a svelte remote never tries to share react.
@@ -111,6 +113,8 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. The store validates its shape on every change with a plain predicate (no validation library; swap in a zod/valibot/arktype schema if you want one). Bump its `version` and add a `migrate` when the shape changes, and a newer app migrates the shared state in place. Keep changes additive so apps on the old shape still tolerate the new one.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
 - **Shell**: a shared history (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks, all re-exported from `@/shell` (which maps to `src`). The host starts as an editable routed shell; compose one or many remotes into a view however you like. Back and forward work across remotes, and deep links resolve on load.
+
+`<Remote>` isolates failures. A remote that is mid-deploy, 404s, or ships a broken chunk renders its own placeholder with a retry instead of throwing through the host, so one bad remote costs you that region and nothing else. Pass `fallback` for the loading state, `renderError` to style the failure yourself, and `onError` to report it. With the sentry addon on, failures are captured automatically.
 
 Composing remotes is your own code, one region or many, persistent or routed:
 

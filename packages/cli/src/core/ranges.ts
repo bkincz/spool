@@ -33,12 +33,19 @@ export function resolveRanges(ws: Workspace): Map<string, RangeInfo> {
 	for (const dep of managed) {
 		const sources = found.get(dep) ?? new Map<string, string[]>()
 		const pin = ours.get(dep)
-		const target = maxRange(pin ? [pin, ...sources.keys()] : [...sources.keys()])
+		const target =
+			maxRange(pin ? [pin, ...sources.keys()] : [...sources.keys()]) ?? unanimous(sources)
 
 		if (target) resolved.set(dep, { target, sources })
 	}
 
 	return resolved
+}
+
+function unanimous(sources: Map<string, string[]>): string | undefined {
+	if (sources.size !== 1) return undefined
+
+	return [...sources.keys()][0]
 }
 
 function spoolRanges(ws: Workspace): Map<string, string> {

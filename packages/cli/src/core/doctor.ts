@@ -50,6 +50,7 @@ export function diagnose(ws: Workspace): Diagnostic[] {
 		...checkRemotes(apps),
 		...checkExposure(apps),
 		...checkSharedDeps(ws, targets),
+		...checkManagedVersions(ws, targets),
 		...checkFrameworkShared(ws),
 	]
 }
@@ -124,6 +125,28 @@ function checkSharedDeps(ws: Workspace, targets: Map<string, RangeInfo>): Diagno
 	const issues: Diagnostic[] = []
 	const ranges = collectSharedRanges(ws, issues, targets)
 	issues.push(...findRangeMismatches(ranges, targets))
+
+	return issues
+}
+
+function checkManagedVersions(ws: Workspace, targets: Map<string, RangeInfo>): Diagnostic[] {
+	const shared = new Set(ws.manifest.shared.map(packageName))
+	const issues: Diagnostic[] = []
+
+	for (const [dep, info] of targets) {
+		if (shared.has(dep) || info.sources.size < 2) continue
+
+		const detail = [...info.sources.entries()].map(([r, who]) => `${who.join(', ')}: ${r}`)
+		const writes = alignmentWrites(dep, info.target, info.sources)
+
+		issues.push(
+			warn(
+				'',
+				`"${dep}" is on more than one version (${detail.join('; ')}). Spool keeps the deps it writes aligned across the workspace.`,
+				writes.length ? { kind: 'set-deps', writes } : undefined
+			)
+		)
+	}
 
 	return issues
 }

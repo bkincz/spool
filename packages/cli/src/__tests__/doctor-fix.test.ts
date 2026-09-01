@@ -25,6 +25,26 @@ const readJson = (rel: string) => JSON.parse(read(rel))
 const writeJson = (rel: string, value: unknown) =>
 	writeFileSync(join(dir, rel), JSON.stringify(value))
 
+const ROOT = 'package.json'
+
+/** Set a range in devDependencies, where the toolchain deps live. */
+function setDevDep(rel: string, dep: string, range: string) {
+	const pkg = readJson(rel)
+
+	pkg.devDependencies[dep] = range
+
+	writeJson(rel, pkg)
+}
+
+/** Add a package to the manifest’s shared list. */
+function share(dep: string) {
+	const manifest = readJson('spool.json')
+
+	manifest.shared = [...manifest.shared, dep]
+
+	writeJson('spool.json', manifest)
+}
+
 const SHELL = 'apps/shell/package.json'
 const DASHBOARD = 'apps/dashboard/package.json'
 
@@ -137,5 +157,75 @@ describe('doctor --fix', () => {
 		await doctor({})
 
 		expect(step).not.toHaveBeenCalledWith(expect.stringContaining('rerun with --fix'))
+	})
+})
+
+/*
+ *   MANAGED DEPS
+ ***************************************************************************************************/
+describe('doctor --fix on deps spool writes itself', () => {
+	// An app added by an older CLI keeps whatever that version pinned, and
+	// typescript is not in "shared", so nothing used to report it.
+	it('aligns an app left behind on an older toolchain pin', async () => {
+		setDevDep(DASHBOARD, 'typescript', '^5.6.3')
+
+		await doctor({ fix: true })
+
+		expect(readJson(DASHBOARD).devDependencies.typescript).toBe('^6.0.3')
+	})
+
+	it('names the apps that disagree', async () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
+		setDevDep(DASHBOARD, 'typescript', '^5.6.3')
+
+		await doctor({})
+
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining('"typescript" is on more than one version')
+		)
+	})
+
+	// The root carries typescript too, and it is not an app.
+	it('raises the workspace root when it is the one behind', async () => {
+		setDevDep(ROOT, 'typescript', '^5.6.3')
+
+		await doctor({ fix: true })
+
+		expect(readJson(ROOT).devDependencies.typescript).toBe('^6.0.3')
+	})
+
+	it('leaves a dep every package already agrees on alone', async () => {
+		const before = read(DASHBOARD)
+
+		await doctor({ fix: true })
+
+		expect(read(DASHBOARD)).toBe(before)
+	})
+})
+
+/*
+ *   WORKSPACE LINKS
+ ***************************************************************************************************/
+describe('doctor --fix on shared workspace packages', () => {
+	// workspace:* cannot be compared, but when every package that declares it
+	// says the same thing there is nothing to compare in the first place.
+	it('adds a shared workspace link that every other package agrees on', async () => {
+		share('mylib')
+		setDep(SHELL, 'mylib', 'workspace:*')
+
+		await doctor({ fix: true })
+
+		expect(readJson(DASHBOARD).dependencies.mylib).toBe('workspace:*')
+	})
+
+	it('adds nothing when the packages disagree on the link', async () => {
+		share('mylib')
+		setDep(SHELL, 'mylib', 'workspace:*')
+		setDep(DASHBOARD, 'mylib', 'link:../mylib')
+
+		await doctor({ fix: true })
+
+		expect(readJson(SHELL).dependencies.mylib).toBe('workspace:*')
+		expect(readJson(DASHBOARD).dependencies.mylib).toBe('link:../mylib')
 	})
 })
