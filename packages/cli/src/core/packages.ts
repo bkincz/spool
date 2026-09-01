@@ -28,11 +28,11 @@ export type DependencySection = 'dependencies' | 'devDependencies'
 /*
  *   READ
  ***************************************************************************************************/
-export function readPackageJson(path: string): PackageJsonDeps | 'missing' | 'invalid' {
+export function readPackageJson(path: string): PackageJsonShape | 'missing' | 'invalid' {
 	if (!existsSync(path)) return 'missing'
 
 	try {
-		return JSON.parse(readFileSync(path, 'utf8')) as PackageJsonDeps
+		return JSON.parse(readFileSync(path, 'utf8')) as PackageJsonShape
 	} catch {
 		return 'invalid'
 	}

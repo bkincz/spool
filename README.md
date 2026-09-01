@@ -36,7 +36,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `spool addon [list]`            | Add extras to an existing workspace                                      |
 | `spool remove <name> [--files]` | Remove an app and unwire it from hosts. `--files` asks before deleting   |
 | `spool deploy [--only] [--env]` | Run each app's `deploy` command, remotes first                           |
-| `spool ci [--force]`            | Generate a path-filtered GitHub deploy workflow per deployable app       |
+| `spool ci [--force]`            | Generate GitHub workflows: one checking the workspace, one per deployable app |
 | `spool upgrade [--dry-run]`     | Regenerate spool-owned files and move dependencies forward to match the workspace |
 | `spool doctor [--fix]`          | Check ports, wiring, and dependencies. `--fix` repairs what it safely can |
 
@@ -116,6 +116,8 @@ Typos fail loudly instead of being silently dropped, and `spool doctor` catches 
 `spool doctor --fix` repairs what it can: a shared dep an app forgot to declare, apps that disagree on a version, a framework runtime missing from `shared`. Versions converge on the highest range already in the workspace, so a workspace ahead of spool stays ahead. Anything it cannot compare is left alone and still reported. `--dry-run` shows the changes first.
 
 Apps in a tier build at once, since a host bakes in a remote url rather than reading its output. `--concurrency <n>` caps it, so the default leaves atleast one core free.
+
+`spool ci` writes `.github/workflows/ci.yml`, which installs and then runs whichever of `doctor`, `type-check`, `lint`, `test`, and `build` your root package.json has. Apps with a `deploy` command also get a path-filtered `deploy-<app>.yml`. Both trigger on `branches: [main]`; change that if your default branch is named something else.
 
 ## The app list
 

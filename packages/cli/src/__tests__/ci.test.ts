@@ -23,7 +23,7 @@ let cwd: string
 beforeEach(async () => {
 	dir = freshDir('spool-ci-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => {})
+	vi.spyOn(console, 'log').mockImplementation(() => { })
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',
@@ -66,7 +66,7 @@ describe('ci', () => {
 		await ci({})
 		writeFileSync(workflow('shell'), 'user edited\n')
 
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
 		await ci({})
 		expect(readFileSync(workflow('shell'), 'utf8')).toBe('user edited\n')
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('--force'))
@@ -81,19 +81,34 @@ describe('ci', () => {
 		delete manifest.apps.dashboard.deploy
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
 
-		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => { })
 		await ci({})
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))
 		expect(existsSync(workflow('dashboard'))).toBe(false)
 	})
 
-	it('rejects when no app can be deployed', async () => {
+	it('still writes the check workflow when nothing deploys', async () => {
 		const manifest = JSON.parse(readFileSync(join(dir, 'spool.json'), 'utf8'))
 		for (const app of Object.values(manifest.apps) as { deploy?: string }[]) {
 			delete app.deploy
 		}
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
 
-		await expect(ci({})).rejects.toThrow('nothing to generate')
+		await ci({})
+
+		expect(existsSync(join(dir, '.github/workflows/ci.yml'))).toBe(true)
+		expect(existsSync(workflow('shell'))).toBe(false)
+	})
+
+	it('checks with the scripts the scaffold actually has', async () => {
+		await ci({})
+		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
+
+		expect(yaml).toContain('pnpm run doctor')
+		expect(yaml).toContain('pnpm run type-check')
+		expect(yaml).toContain('pnpm run build')
+
+		// The scaffold has no lint or test script without those addons.
+		expect(yaml).not.toContain('pnpm run lint')
 	})
 })
