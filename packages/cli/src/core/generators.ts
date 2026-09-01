@@ -431,7 +431,9 @@ export function spoolApp(
     }
     // dts:false: spool types remotes via src/remotes.d.ts, so the federation
     // DTS archive is redundant and its dev-server download is flaky.
-    return { server, federation: { name, remotes, shared, dts: false } };
+    // manifest:true so a host records what it resolved for every shared dep,
+    // which is what spool build compares across apps. Nothing loads it.
+    return { server, federation: { name, remotes, shared, manifest: true, dts: false } };
   }
 
   return {

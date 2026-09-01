@@ -6,6 +6,7 @@ import type { ChildProcess } from 'node:child_process'
 import pc from 'picocolors'
 import type { Workspace } from './workspace.js'
 import { HELPER_FILE, type AppConfig } from './config.js'
+import { checkBuiltSingletons, describeShipped } from './federation.js'
 import { existsSync, readFileSync } from 'node:fs'
 import { availableParallelism } from 'node:os'
 import { runCaptured, runShell, spawnProcess, killTree } from '../util/exec.js'
@@ -579,6 +580,30 @@ export async function buildAll(
 	}
 
 	log.success(`built ${apps.length} app(s)`)
+	verifySingletons(ws, apps)
+}
+
+function verifySingletons(ws: Workspace, apps: NamedApp[]): void {
+	const conflicts = checkBuiltSingletons(
+		ws,
+		apps.map(({ name }) => name)
+	)
+
+	if (!conflicts.length) return
+
+	for (const conflict of conflicts) {
+		const blocked = conflict.unsatisfied
+			.map(entry => `${entry.app} needs ${entry.requiredVersion}`)
+			.join(', ')
+
+		log.error(
+			`"${conflict.dep}" shipped as ${describeShipped(conflict)}. Federation loads ${conflict.chosen}, which ${blocked}.`
+		)
+	}
+
+	throw new CliError(
+		`${conflicts.length} shared dep(s) resolved to versions the apps cannot agree on, so they would load more than one copy at runtime. Run \`spool doctor --fix\` to align them, reinstall, and build again.`
+	)
 }
 
 interface BuildFailure {
@@ -597,7 +622,7 @@ async function buildTier(
 	const failures: BuildFailure[] = []
 
 	const worker = async (): Promise<void> => {
-		for (; ;) {
+		for (;;) {
 			const next = queue.shift()
 			if (!next) return
 

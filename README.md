@@ -117,6 +117,8 @@ Typos fail loudly instead of being silently dropped, and `spool doctor` catches 
 
 Apps in a tier build at once, since a host bakes in a remote url rather than reading its output. `--concurrency <n>` caps it, so the default leaves atleast one core free.
 
+After building, spool compares what each app actually resolved for every shared dep, read from the manifests the build just wrote. Ranges agreeing in package.json does not mean one copy shipped. Versions may differ, which means the build only fails when the one federation would load is outside another app’s required range, which is where a second copy appears.
+
 `spool ci` writes `.github/workflows/ci.yml`, which installs and then runs whichever of `doctor`, `type-check`, `lint`, `test`, and `build` your root package.json has. Apps with a `deploy` command also get a path-filtered `deploy-<app>.yml`. Both trigger on `branches: [main]`; change that if your default branch is named something else.
 
 ## The app list

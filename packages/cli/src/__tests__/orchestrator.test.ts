@@ -144,6 +144,29 @@ describe('devAll', () => {
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
 	})
 
+	it('fails the build when a singleton shipped as two incompatible copies', async () => {
+		const root = freshDir('spool-singleton-')
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: '' })
+
+		const write = (path: string, version: string, requiredVersion: string) => {
+			mkdirSync(join(root, path, 'dist'), { recursive: true })
+			writeFileSync(
+				join(root, path, 'dist/mf-manifest.json'),
+				JSON.stringify({ shared: [{ name: 'react', version, requiredVersion }] })
+			)
+		}
+		write('apps/shell', '20.0.0', '^20.0.0')
+		write('apps/dashboard', '19.2.8', '^19.2.0')
+
+		const ws = makeWorkspace(root, {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+
+		await expect(buildAll(ws)).rejects.toThrow('more than one copy')
+		removeDir(root)
+	})
+
 	it('rejects an unknown app name in the only filter', async () => {
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
 		await expect(devAll(ws, ['ghost'])).rejects.toThrow('Unknown app(s) in --only: ghost')
