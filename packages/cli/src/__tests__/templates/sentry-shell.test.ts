@@ -253,7 +253,7 @@ describe('shell addon', () => {
 	it('wires the @ alias into every app tsconfig and vite config', () => {
 		const files = appFiles(build(), 'shell', build().apps.shell!)
 		const tsconfig = JSON.parse(files['tsconfig.json']!)
-		expect(tsconfig.compilerOptions.baseUrl).toBe('.')
+		expect(tsconfig.compilerOptions.baseUrl).toBeUndefined()
 		expect(tsconfig.compilerOptions.paths['@/*']).toEqual(['./src/*'])
 		expect(files['vite.config.ts']).toContain('alias: { "@": resolvePath(import.meta.dirname')
 	})

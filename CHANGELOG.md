@@ -70,6 +70,14 @@ environment at startup. Nobody edits a generated vite.config.ts to get one.
 `spool remove --files` asks before deleting the folder, unless `--yes` or no
 terminal.
 
+Three fixes so a fresh scaffold type-checks on TypeScript 6. Generated app
+tsconfigs dropped `baseUrl`, which 6 deprecates and errors on; `paths` resolves
+relative to the tsconfig without it, so `@/...` imports are unchanged. The root
+tsconfig gained `types: ["node"]`, because 6 no longer auto-includes `@types`
+and the runtime helper is node code. And the helper types a proxy entry
+properly rather than as `unknown`, so an app’s vite.config.ts assigns to vite’s
+`ServerOptions`.
+
 Toolchain: react and react-dom to 19.2.8, svelte to 5.57.0, vue to 3.5.42,
 typescript to 6.0.3, pnpm to 11.25.0. A test now fails if the versions spool
 writes fall a major behind the ones the CLI itself runs, which is how

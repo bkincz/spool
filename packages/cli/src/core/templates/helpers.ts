@@ -118,8 +118,15 @@ export interface SpoolAppEntry {
   exposes?: Record<string, string>;
 }
 
+export interface SpoolProxyEntry {
+  target: string;
+  changeOrigin?: boolean;
+  secure?: boolean;
+  ws?: boolean;
+}
+
 export interface SpoolServerConfig {
-  proxy?: Record<string, unknown>;
+  proxy?: Record<string, string | SpoolProxyEntry>;
   headers?: Record<string, string>;
   host?: boolean | string;
   cors?: boolean;

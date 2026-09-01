@@ -77,6 +77,8 @@ export function workspaceFiles(m: Manifest, allowBuilds: string[] = []): FileMap
 		// Root-level project so editors type-check the runtime helper.
 		'tsconfig.json': json({
 			extends: './tsconfig.base.json',
+			// TypeScript 6 stopped auto-including @types, and the helper is node code.
+			compilerOptions: { types: ['node'] },
 			include: [HELPER_FILE],
 		}),
 		'README.md': workspaceReadme(m),
@@ -282,7 +284,6 @@ function appTsConfig(framework: Framework): string {
 		extends: '../../tsconfig.base.json',
 		compilerOptions: {
 			...TEMPLATES[framework].compilerOptions,
-			baseUrl: '.',
 			paths: { '@/*': ['./src/*'] },
 		},
 		include: ['src', 'vite.config.ts'],
