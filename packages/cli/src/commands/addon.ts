@@ -23,14 +23,17 @@ import { formatFiles } from '../core/format.js'
 import { writeFiles } from '../core/fswrite.js'
 import { installDependencies } from '../core/install.js'
 import { dependencyHome, type PackageJsonShape } from '../core/packages.js'
-import { packageName, yamlKey } from '../util/names.js'
-import { log } from '../util/logger.js'
+import type { FileMap } from '../core/filemap.js'
+import { packageName, splitList, yamlKey } from '../util/names.js'
+import { log, fail } from '../util/logger.js'
 
 /*
  *   TYPES
  ***************************************************************************************************/
 export interface AddonOptions {
 	install?: boolean
+	/** Only write per-app files into these apps; the rest are left alone. */
+	only?: string
 }
 
 /*
@@ -58,7 +61,8 @@ export async function addon(entries: string[], opts: AddonOptions): Promise<void
 	for (const name of names) {
 		const picked = ADDONS[name]
 		// Existing files are never overwritten, so rerunning only fills gaps.
-		const { written } = await writeFiles(ws.root, await formatFiles(picked.files(ws.manifest)))
+		const files = scopeToApps(picked.files(ws.manifest), ws, opts.only)
+		const { written } = await writeFiles(ws.root, await formatFiles(files, ws.root))
 		await allowPnpmBuilds(ws, picked.allowBuilds)
 		log.success(`added ${name}${written.length ? '' : ' (files already present, left alone)'}`)
 		for (const note of picked.notes(ws.manifest, false)) log.step(note)
@@ -73,6 +77,26 @@ export async function addon(entries: string[], opts: AddonOptions): Promise<void
 	if (!(await installDependencies(pm, ws.root))) {
 		log.warn(`Install failed. Run \`${pm} install\` to finish setup.`)
 	}
+}
+
+function scopeToApps(files: FileMap, ws: Workspace, only: string | undefined): FileMap {
+	if (only === undefined) return files
+
+	const wanted = new Set(splitList(only))
+	const unknown = [...wanted].filter(name => !ws.manifest.apps[name])
+
+	if (unknown.length) fail(`Unknown app(s) in --only: ${unknown.join(', ')}`)
+
+	const appPaths = Object.entries(ws.manifest.apps).map(
+		([name, app]) => [name, `${app.path}/`] as const
+	)
+
+	return Object.fromEntries(
+		Object.entries(files).filter(([rel]) => {
+			const owner = appPaths.find(([, prefix]) => rel.startsWith(prefix))
+			return !owner || wanted.has(owner[0])
+		})
+	)
 }
 
 /*

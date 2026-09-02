@@ -53,9 +53,10 @@ export function dependencyHome(
  *   WRITE
  ***************************************************************************************************/
 export async function editJsonFile(
+	/** Workspace root, so the edit lands in the workspace style. */
 	target: string,
 	edit: (json: PackageJsonShape) => string[],
-	opts: { write?: boolean } = {}
+	opts: { write?: boolean; root?: string } = {}
 ): Promise<string[]> {
 	if (!existsSync(target)) return []
 
@@ -65,7 +66,7 @@ export async function editJsonFile(
 
 	if (opts.write ?? true) {
 		const rel = basename(target)
-		const formatted = await formatFiles({ [rel]: `${JSON.stringify(json)}\n` })
+		const formatted = await formatFiles({ [rel]: `${JSON.stringify(json)}\n` }, opts.root)
 
 		await writeFile(target, formatted[rel]!, 'utf8')
 	}

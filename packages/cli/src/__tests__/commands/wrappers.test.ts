@@ -154,10 +154,11 @@ describe('doctor', () => {
 			type: 'remote',
 			path: 'apps/extra',
 			port: 5199,
-			exposes: { './App': './src/App.tsx' },
+			exposes: { './App': './src/app/app.tsx' },
 		}
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
-		mkdirSync(join(dir, 'apps/extra'), { recursive: true })
+		mkdirSync(join(dir, 'apps/extra/src/app'), { recursive: true })
+		writeFileSync(join(dir, 'apps/extra/src/app/app.tsx'), 'export default function App() {}')
 
 		vi.spyOn(log, 'warn').mockImplementation(() => {})
 		const info = vi.spyOn(log, 'info').mockImplementation(() => {})

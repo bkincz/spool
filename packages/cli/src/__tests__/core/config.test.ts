@@ -121,7 +121,7 @@ describe('parseManifest', () => {
 		expect(() =>
 			parseManifest({
 				name: 'acme',
-				apps: { dash: { ...remote(), expose: { './App': './src/App.tsx' } } },
+				apps: { dash: { ...remote(), expose: { './App': './src/app/app.tsx' } } },
 			})
 		).toThrow(/expose/)
 	})

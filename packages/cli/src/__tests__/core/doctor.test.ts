@@ -3,7 +3,7 @@
  ***************************************************************************************************/
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { diagnose, diagnoseRemotes } from '../../core/doctor.js'
 import { freshDir, removeDir, makeWorkspace, host, remote } from '../helpers.js'
 import type { AppConfig } from '../../core/config.js'
@@ -24,7 +24,16 @@ afterEach(() => {
 })
 
 function withFolders(apps: Record<string, AppConfig>) {
-	for (const app of Object.values(apps)) mkdirSync(join(root, app.path), { recursive: true })
+	for (const app of Object.values(apps)) {
+		mkdirSync(join(root, app.path), { recursive: true })
+
+		for (const source of Object.values(app.exposes)) {
+			const file = join(root, app.path, source)
+			mkdirSync(dirname(file), { recursive: true })
+			writeFileSync(file, 'export default function App() {}')
+		}
+	}
+
 	return makeWorkspace(root, apps)
 }
 

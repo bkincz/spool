@@ -162,7 +162,8 @@ describe('appFiles (host)', () => {
 			[
 				'index.html',
 				'package.json',
-				'src/App.tsx',
+				'src/app/app.module.css',
+				'src/app/app.tsx',
 				'src/main.tsx',
 				'src/remotes.d.ts',
 				'src/vite-env.d.ts',
@@ -184,9 +185,9 @@ describe('appFiles (host)', () => {
 		expect(files['public/_headers']).toBeUndefined()
 	})
 
-	it('lazy-imports each remote in App.tsx', () => {
-		expect(files['src/App.tsx']).toContain('import("dashboard/App")')
-		expect(files['src/App.tsx']).toContain('lazy(')
+	it('lazy-imports each remote in app.tsx', () => {
+		expect(files['src/app/app.tsx']).toContain('import("dashboard/App")')
+		expect(files['src/app/app.tsx']).toContain('lazy(')
 	})
 
 	it('declares ambient modules for the remotes', () => {
@@ -209,9 +210,9 @@ describe('appFiles (host with no remotes)', () => {
 		expect(files['src/remotes.d.ts']).toBeUndefined()
 	})
 
-	it('leaves a hint in App.tsx', () => {
-		expect(files['src/App.tsx']).toContain('No remotes wired yet')
-		expect(files['src/App.tsx']).toContain('spool add')
+	it('leaves a hint in app.tsx', () => {
+		expect(files['src/app/app.tsx']).toContain('No remotes wired yet')
+		expect(files['src/app/app.tsx']).toContain('spool add')
 	})
 })
 
@@ -276,10 +277,10 @@ describe('appFiles (svelte remote)', () => {
 	const files = appFiles(m, 'widget', m.apps.widget!)
 
 	it('scaffolds svelte sources and the mount contract', () => {
-		expect(files['src/App.svelte']).toContain('Svelte remote')
+		expect(files['src/app/app.svelte']).toContain('Svelte remote')
 		expect(files['src/mount.ts']).toContain('export default function mountApp')
 		expect(files['src/main.ts']).toContain('mount(App')
-		expect(files['src/App.tsx']).toBeUndefined()
+		expect(files['src/app/app.tsx']).toBeUndefined()
 		expect(files['src/main.tsx']).toBeUndefined()
 	})
 
@@ -315,9 +316,9 @@ describe('appFiles (react host with a svelte remote)', () => {
 	const files = appFiles(m, 'shell', m.apps.shell!)
 
 	it('renders react remotes with lazy and mount remotes with a wrapper', () => {
-		expect(files['src/App.tsx']).toContain('lazy(() => import("dashboard/App"))')
-		expect(files['src/App.tsx']).toContain('function MountRemote')
-		expect(files['src/App.tsx']).toContain('<MountRemote load={loadWidget} />')
+		expect(files['src/app/app.tsx']).toContain('lazy(() => import("dashboard/App"))')
+		expect(files['src/app/app.tsx']).toContain('function MountRemote')
+		expect(files['src/app/app.tsx']).toContain('<MountRemote load={loadWidget} />')
 	})
 
 	it('types each remote by its contract', () => {
@@ -342,7 +343,7 @@ describe('appFiles (svelte host with a react remote)', () => {
 
 	it('bridges react remotes and ships both frameworks', () => {
 		expect(files['src/react-bridge.ts']).toContain('createRoot')
-		expect(files['src/App.svelte']).toContain('mountReact(m.default')
+		expect(files['src/app/app.svelte']).toContain('mountReact(m.default')
 		const pkg = JSON.parse(files['package.json']!)
 		expect(pkg.dependencies.svelte).toBeDefined()
 		expect(pkg.dependencies.react).toBeDefined()
@@ -356,7 +357,7 @@ describe('appFiles (svelte host with a react remote)', () => {
 	})
 
 	it('guards mounts against unmounting before a remote import resolves', () => {
-		expect(files['src/App.svelte']).toContain('cancelled')
+		expect(files['src/app/app.svelte']).toContain('cancelled')
 	})
 })
 
@@ -375,10 +376,10 @@ describe('appFiles (vue remote)', () => {
 	const files = appFiles(m, 'widget', m.apps.widget!)
 
 	it('scaffolds vue sources and the mount contract', () => {
-		expect(files['src/App.vue']).toContain('Vue remote')
+		expect(files['src/app/app.vue']).toContain('Vue remote')
 		expect(files['src/mount.ts']).toContain('export default function mountApp')
 		expect(files['src/main.ts']).toContain('createApp(App)')
-		expect(files['src/App.tsx']).toBeUndefined()
+		expect(files['src/app/app.tsx']).toBeUndefined()
 		expect(files['src/main.tsx']).toBeUndefined()
 	})
 
@@ -412,8 +413,8 @@ describe('appFiles (react host with a vue remote)', () => {
 	const files = appFiles(m, 'shell', m.apps.shell!)
 
 	it('mounts the vue remote through the mount contract wrapper', () => {
-		expect(files['src/App.tsx']).toContain('function MountRemote')
-		expect(files['src/App.tsx']).toContain('<MountRemote load={loadWidget} />')
+		expect(files['src/app/app.tsx']).toContain('function MountRemote')
+		expect(files['src/app/app.tsx']).toContain('<MountRemote load={loadWidget} />')
 	})
 
 	it('needs no vue deps, since mount-contract remotes are self-contained', () => {
@@ -438,8 +439,8 @@ describe('appFiles (vue host with mixed remotes)', () => {
 
 	it('bridges react remotes and mounts contract remotes directly', () => {
 		expect(files['src/react-bridge.ts']).toContain('createRoot')
-		expect(files['src/App.vue']).toContain('mountReact(m.default')
-		expect(files['src/App.vue']).toContain('import("widget/App")')
+		expect(files['src/app/app.vue']).toContain('mountReact(m.default')
+		expect(files['src/app/app.vue']).toContain('import("widget/App")')
 	})
 
 	it('ships the react bridge runtime but neither vite plugin nor svelte', () => {
@@ -452,7 +453,7 @@ describe('appFiles (vue host with mixed remotes)', () => {
 	})
 
 	it('guards mounts against unmounting before a remote import resolves', () => {
-		expect(files['src/App.vue']).toContain('cancelled')
+		expect(files['src/app/app.vue']).toContain('cancelled')
 	})
 
 	it('types each remote by its contract', () => {
@@ -465,11 +466,11 @@ describe('appFiles (vue host with mixed remotes)', () => {
 describe('appFiles (mount-contract hosts with no remotes)', () => {
 	it('imports nothing, so fresh scaffolds pass unused-import lint', () => {
 		const svelteM = makeManifest({ shell: host({ framework: 'svelte' }) })
-		expect(appFiles(svelteM, 'shell', svelteM.apps.shell!)['src/App.svelte']).not.toContain(
+		expect(appFiles(svelteM, 'shell', svelteM.apps.shell!)['src/app/app.svelte']).not.toContain(
 			'import'
 		)
 		const vueM = makeManifest({ shell: host({ framework: 'vue' }) })
-		expect(appFiles(vueM, 'shell', vueM.apps.shell!)['src/App.vue']).not.toContain('import')
+		expect(appFiles(vueM, 'shell', vueM.apps.shell!)['src/app/app.vue']).not.toContain('import')
 	})
 })
 
@@ -497,7 +498,7 @@ describe('appFiles (state example extras)', () => {
 	})
 
 	it('gives react remotes a counter with a plain button by default', () => {
-		const app = appFiles(m, 'dash', m.apps.dash!, plain)['src/App.tsx']!
+		const app = appFiles(m, 'dash', m.apps.dash!, plain)['src/app/app.tsx']!
 		expect(app).toContain('useMachine(counterMachine)')
 		expect(app).toContain('<button onClick={increment}>Increment</button>')
 		expect(app).not.toContain('from "ui"')
@@ -505,8 +506,8 @@ describe('appFiles (state example extras)', () => {
 
 	it('uses the ladle ui button when both addons are picked', () => {
 		const files = appFiles(m, 'dash', m.apps.dash!, withUi)
-		expect(files['src/App.tsx']).toContain('import { Button } from "ui";')
-		expect(files['src/App.tsx']).toContain('<Button onClick={increment}>Increment</Button>')
+		expect(files['src/app/app.tsx']).toContain('import { Button } from "ui";')
+		expect(files['src/app/app.tsx']).toContain('<Button onClick={increment}>Increment</Button>')
 		expect(JSON.parse(files['package.json']!).dependencies.ui).toBe('workspace:*')
 	})
 
@@ -521,34 +522,34 @@ describe('appFiles (state example extras)', () => {
 	})
 
 	it('shows the shared count on the host with a stable test id', () => {
-		const app = appFiles(m, 'shell', m.apps.shell!, plain)['src/App.tsx']!
+		const app = appFiles(m, 'shell', m.apps.shell!, plain)['src/app/app.tsx']!
 		expect(app).toContain('data-testid="shell-count"')
 		expect(app).toContain('useMachine(counterMachine)')
 	})
 
 	it('wires the counter into svelte and vue remotes with their own syntax', () => {
-		const svelteApp = appFiles(m, 'widget', m.apps.widget!, plain)['src/App.svelte']!
+		const svelteApp = appFiles(m, 'widget', m.apps.widget!, plain)['src/app/app.svelte']!
 		expect(svelteApp).toContain('counterMachine.mutate')
 		expect(svelteApp).toContain('<button on:click={increment}>Increment</button>')
 
-		const vueApp = appFiles(m, 'vapp', m.apps.vapp!, plain)['src/App.vue']!
+		const vueApp = appFiles(m, 'vapp', m.apps.vapp!, plain)['src/app/app.vue']!
 		expect(vueApp).toContain('counterMachine.mutate')
 		expect(vueApp).toContain('<button @click="increment">Increment</button>')
 	})
 
 	it('shows the shared count on svelte and vue hosts too', () => {
 		const svelteM = makeManifest({ shell: host({ framework: 'svelte' }) })
-		expect(appFiles(svelteM, 'shell', svelteM.apps.shell!, plain)['src/App.svelte']).toContain(
-			'data-testid="shell-count"'
-		)
+		expect(
+			appFiles(svelteM, 'shell', svelteM.apps.shell!, plain)['src/app/app.svelte']
+		).toContain('data-testid="shell-count"')
 		const vueM = makeManifest({ shell: host({ framework: 'vue' }) })
-		expect(appFiles(vueM, 'shell', vueM.apps.shell!, plain)['src/App.vue']).toContain(
+		expect(appFiles(vueM, 'shell', vueM.apps.shell!, plain)['src/app/app.vue']).toContain(
 			'data-testid="shell-count"'
 		)
 	})
 
 	it('changes nothing when no extras are passed', () => {
-		const app = appFiles(m, 'dash', m.apps.dash!)['src/App.tsx']!
+		const app = appFiles(m, 'dash', m.apps.dash!)['src/app/app.tsx']!
 		expect(app).not.toContain('counterMachine')
 		expect(
 			JSON.parse(appFiles(m, 'dash', m.apps.dash!)['package.json']!).dependencies.ui

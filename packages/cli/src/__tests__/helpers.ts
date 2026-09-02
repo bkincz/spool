@@ -40,7 +40,7 @@ export function remote(overrides: Partial<AppConfig> = {}): AppConfig {
 		path: 'apps/dashboard',
 		port: 5174,
 		remotes: [],
-		exposes: { './App': './src/App.tsx' },
+		exposes: { './App': './src/app/app.tsx' },
 		...overrides,
 	}
 }

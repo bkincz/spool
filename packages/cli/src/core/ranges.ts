@@ -4,6 +4,7 @@
 import { join } from 'node:path'
 import type { Workspace } from './workspace.js'
 import { readPackageJson, type PackageJsonDeps } from './packages.js'
+import { labelledMembers } from './packages-glob.js'
 import { appDependencies, rootDevDependencies } from './versions.js'
 import { packageName } from '../util/names.js'
 import { maxRange } from '../util/semver.js'
@@ -84,8 +85,8 @@ function collectSources(ws: Workspace, managed: Set<string>): Map<string, Map<st
 	const root = readPackageJson(join(ws.root, 'package.json'))
 	if (typeof root !== 'string') record(ROOT_LABEL, root)
 
-	for (const [name, app] of Object.entries(ws.manifest.apps)) {
-		const pkg = readPackageJson(join(ws.root, app.path, 'package.json'))
+	for (const [name, path] of labelledMembers(ws)) {
+		const pkg = readPackageJson(join(ws.root, path, 'package.json'))
 		if (typeof pkg !== 'string') record(name, pkg)
 	}
 

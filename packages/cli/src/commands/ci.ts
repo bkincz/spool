@@ -34,7 +34,7 @@ export async function ci(opts: CiOptions): Promise<void> {
 		log.step('Add a "deploy" command to an app in spool.json to get a deploy workflow for it.')
 	}
 
-	const files = await formatFiles(ciWorkflows(ws.manifest, scripts))
+	const files = await formatFiles(ciWorkflows(ws.manifest, scripts), ws.root)
 	const result = await writeFiles(ws.root, files, { force: opts.force ?? false })
 
 	for (const rel of result.written) log.step(`wrote ${rel}`)

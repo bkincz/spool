@@ -144,7 +144,7 @@ describe('generated spool.vite.ts', () => {
 		const app = helper.spoolApp('dashboard', dir)
 		expect(app.server).toEqual({ port: 5174, strictPort: true, cors: true })
 		expect(app.federation.filename).toBe('remoteEntry.js')
-		expect(app.federation.exposes).toEqual({ './App': './src/App.tsx' })
+		expect(app.federation.exposes).toEqual({ './App': './src/app/app.tsx' })
 		expect(app.federation.remotes).toBeUndefined()
 
 		// Without this flag, production builds never emit mf-manifest.json and

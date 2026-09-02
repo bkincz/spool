@@ -33,7 +33,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `spool build [--only] [--env]`  | Production build. Remotes first, then hosts, each tier in parallel      |
 | `spool preview [--only <list>]` | Serve the built apps locally                                             |
 | `spool add <name>`              | Add an app and wire it in                                                |
-| `spool addon [list]`            | Add extras to an existing workspace                                      |
+| `spool addon [list] [--only]`   | Add extras to an existing workspace, optionally to some apps only        |
 | `spool remove <name> [--files]` | Remove an app and unwire it from hosts. `--files` asks before deleting   |
 | `spool deploy [--only] [--env]` | Run each app's `deploy` command, remotes first                           |
 | `spool ci [--force]`            | Generate GitHub workflows: one checking the workspace, one per deployable app |
@@ -78,7 +78,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
   "shared": ["react", "react-dom"],
   "apps": {
     "shell":     { "type": "host",   "path": "apps/shell",     "port": 5173, "remotes": ["dashboard"] },
-    "dashboard": { "type": "remote", "path": "apps/dashboard", "port": 5174, "exposes": { "./App": "./src/App.tsx" },
+    "dashboard": { "type": "remote", "path": "apps/dashboard", "port": 5174, "exposes": { "./App": "./src/app/app.tsx" },
                    "url": "https://dashboard.example.com/mf-manifest.json" }
   }
 }

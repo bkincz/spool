@@ -36,7 +36,7 @@ declare module "*.svelte" {
 	sourceFiles: (appName, isHost, refs, extras) => {
 		const files: Record<string, string> = {
 			'src/main.ts': svelteMain(extras),
-			'src/App.svelte': isHost
+			'src/app/app.svelte': isHost
 				? svelteHostAppFile(appName, refs, extras)
 				: svelteRemoteApp(appName, extras),
 		}
@@ -54,7 +54,7 @@ function svelteMain(extras: TemplateExtras): string {
 	const sentryImport = extras.sentry ? `import { initSentry } from "./sentry";\n` : ''
 	const sentryCall = extras.sentry ? `initSentry();\n\n` : ''
 	return `${sentryImport}import { mount } from "svelte";
-import App from "./App.svelte";
+import App from "./app/app.svelte";
 
 ${sentryCall}mount(App, { target: document.getElementById("root")! });
 `
@@ -62,7 +62,7 @@ ${sentryCall}mount(App, { target: document.getElementById("root")! });
 
 function svelteMount(): string {
 	return `import { mount, unmount } from "svelte";
-import App from "./App.svelte";
+import App from "./app/app.svelte";
 
 // The contract non-react remotes expose: any host mounts this into a DOM
 // node it owns and calls the returned cleanup on teardown.
@@ -200,5 +200,5 @@ function mountHint(ref: RemoteRef, hostName: string): MountHint {
 	if (ref.contract === 'component') {
 		lines.unshift(`import { mountReact } from "./react-bridge";`)
 	}
-	return { intro: `To mount it, edit apps/${hostName}/src/App.svelte:`, lines }
+	return { intro: `To mount it, edit apps/${hostName}/src/app/app.svelte:`, lines }
 }

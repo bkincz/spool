@@ -98,8 +98,8 @@ describe('create', () => {
 		expect(manifest.apps.profile.framework).toBe('svelte')
 		expect(manifest.shared).toEqual(expect.arrayContaining(['svelte', 'vue']))
 		expect(new Set(manifest.shared).size).toBe(manifest.shared.length)
-		expect(existsSync(join(dir, 'apps/shell/src/App.svelte'))).toBe(true)
-		expect(existsSync(join(dir, 'apps/dashboard/src/App.vue'))).toBe(true)
+		expect(existsSync(join(dir, 'apps/shell/src/app/app.svelte'))).toBe(true)
+		expect(existsSync(join(dir, 'apps/dashboard/src/app/app.vue'))).toBe(true)
 	})
 
 	it('uses --framework as the default for apps without a spec', async () => {
@@ -208,12 +208,12 @@ describe('create', () => {
 			install: false,
 		})
 
-		expect(read('apps/shell/src/App.tsx')).toContain('shell-count')
-		const dash = read('apps/dash/src/App.tsx')
+		expect(read('apps/shell/src/app/app.tsx')).toContain('shell-count')
+		const dash = read('apps/dash/src/app/app.tsx')
 		expect(dash).toContain("import { Button } from 'ui'")
 		expect(dash).toContain('<Button onClick={increment}>Increment</Button>')
 		expect(JSON.parse(read('apps/dash/package.json')).dependencies.ui).toBe('workspace:*')
-		expect(read('apps/widget/src/App.svelte')).toContain('counterMachine.mutate')
+		expect(read('apps/widget/src/app/app.svelte')).toContain('counterMachine.mutate')
 		expect(read('packages/e2e/tests/shell.spec.ts')).toContain('shared state')
 	})
 
@@ -227,7 +227,7 @@ describe('create', () => {
 			install: false,
 		})
 
-		const dash = read('apps/dash/src/App.tsx')
+		const dash = read('apps/dash/src/app/app.tsx')
 		expect(dash).toContain('<button onClick={increment}>Increment</button>')
 		expect(dash).not.toContain("from 'ui'")
 		expect(JSON.parse(read('apps/dash/package.json')).dependencies.ui).toBeUndefined()

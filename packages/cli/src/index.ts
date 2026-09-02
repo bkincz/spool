@@ -61,6 +61,7 @@ program
 	.description(
 		'Add extras to an existing workspace: ladle | playwright | lint | test | turbo | state | sentry | shell'
 	)
+	.option('--only <list>', 'comma-separated apps to write per-app files into')
 	.option('--no-install', 'skip dependency install')
 	.action(addon)
 
@@ -109,7 +110,10 @@ program
 	.description('Regenerate spool-owned files and sync the toolchain to this CLI version')
 	.option('--dry-run', 'report what would change without writing')
 	.option('--pin', "write this CLI's dependency ranges even when the workspace is ahead")
-	.option('--force', 'overwrite generated files that have local changes, without asking')
+	.option(
+		'--force [files...]',
+		'overwrite generated files that have local changes; name paths to limit it'
+	)
 	.action(upgrade)
 
 program
