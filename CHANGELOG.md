@@ -1,5 +1,39 @@
 # Changelog
 
+## 2.6.0
+
+New apps scaffold into `src/app/app.tsx` with a co-located `app.module.css`,
+and `main.tsx` imports it through the `@` alias. Svelte and Vue take the same
+shape. Existing workspaces keep the layout they have, because upgrade only
+regenerates files it owns and will not move your source.
+
+Spool reads the whole workspace now, not just the apps in the manifest. A
+library in `packages/` carries the same shared deps and has to agree on them,
+so `spool doctor` and `spool upgrade` read every workspace member from
+`pnpm-workspace.yaml` or the `workspaces` field. Moving the apps forward while
+leaving a local package behind was enough to put two copies of react on one
+page, and nothing reported it.
+
+`spool doctor` checks that every `exposes` path exists. A remote whose exposed
+file has moved emits no remote entry at all, and every other check passed
+while it did, so this is an error rather than a warning.
+
+Generated files follow the workspace's own prettier config, layered over
+spool's defaults. A workspace that formats differently could never pass its
+own format check on the files spool writes, and reformatting them by hand made
+spool read them as edited.
+
+`spool upgrade --force` takes paths. Forcing everything was the only way out of
+a workspace holding a mix of untouched and customised generated files, which
+meant overwriting real work to pick up one helper.
+
+`spool addon <name> --only <apps>` writes per-app files into only those apps.
+Root and `packages/` files are always written, since the config an addon
+installs belongs to the workspace rather than to any one app.
+
+`spool upgrade` names a generated file the first time it appears and says what
+it enables.
+
 ## 2.5.0
 
 `spool upgrade` was downgrading dependencies. It compared ranges with `!==`
@@ -31,7 +65,7 @@ changes first.
 compares what each one actually resolved for every shared dep, read from the
 manifests the build just wrote. Agreeing ranges in package.json never proved
 one copy shipped. Versions may differ; the build only fails when the version
-federation would load falls outside another app’s required range. Hosts now
+federation would load falls outside another app's required range. Hosts now
 emit a manifest so they are included, which needs `spool upgrade`.
 
 `<Remote>` isolates failures. A remote that is mid-deploy or ships a broken
@@ -52,7 +86,7 @@ finish before hosts start. `--concurrency <n>` caps it.
 
 Three new addons. `lint` writes one flat ESLint config with the plugins your
 frameworks need. `test` writes a vitest config per app, kept separate from
-vite.config.ts because federation cannot run under a test, with each host’s
+vite.config.ts because federation cannot run under a test, with each host's
 remotes aliased to stubs that are regenerated when the remote list changes.
 `turbo` writes a turbo.json that puts spool.json, the runtime helpers, and the
 `SPOOL_ENV` and `SPOOL_REMOTE_*` variables into the cache key, so a wiring
@@ -75,7 +109,7 @@ tsconfigs dropped `baseUrl`, which 6 deprecates and errors on; `paths` resolves
 relative to the tsconfig without it, so `@/...` imports are unchanged. The root
 tsconfig gained `types: ["node"]`, because 6 no longer auto-includes `@types`
 and the runtime helper is node code. And the helper types a proxy entry
-properly rather than as `unknown`, so an app’s vite.config.ts assigns to vite’s
+properly rather than as `unknown`, so an app's vite.config.ts assigns to vite's
 `ServerOptions`.
 
 Toolchain: react and react-dom to 19.2.8, svelte to 5.57.0, vue to 3.5.42,
