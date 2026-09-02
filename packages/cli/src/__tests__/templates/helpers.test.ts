@@ -28,6 +28,7 @@ interface HelperModule {
 			remotes?: Record<string, string>
 			exposes?: Record<string, string>
 			shared: Record<string, { singleton: boolean }>
+			shareStrategy: 'version-first' | 'loaded-first'
 		}
 	}
 }
@@ -174,6 +175,28 @@ describe('generated spool.vite.ts', () => {
 		const app = helper.spoolApp('shell', bare)
 		expect(app.federation.shared).toEqual({ react: { singleton: true } })
 		removeDir(bare)
+	})
+
+	it('defaults a host to loaded-first so an unreachable remote cannot block first paint', () => {
+		const app = helper.spoolApp('shell', dir)
+		expect(app.federation.shareStrategy).toBe('loaded-first')
+	})
+
+	it('defaults a remote to loaded-first too, so hosts and remotes agree', () => {
+		const app = helper.spoolApp('dashboard', dir)
+		expect(app.federation.shareStrategy).toBe('loaded-first')
+	})
+
+	it('honours an explicit shareStrategy from the manifest', () => {
+		const pinned = freshDir('spool-helper-strategy-')
+		plantDeclaredDeps(pinned, ['react', 'react-dom'])
+		writeFileSync(
+			join(pinned, 'spool.json'),
+			JSON.stringify({ ...manifest, shareStrategy: 'version-first' })
+		)
+
+		expect(helper.spoolApp('shell', pinned).federation.shareStrategy).toBe('version-first')
+		removeDir(pinned)
 	})
 
 	it('shares nothing and warns when the app package.json is unreadable', () => {

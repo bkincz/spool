@@ -33,9 +33,9 @@ export interface WorkspaceApp {
   dir: string;
   /** Absolute path to the app\u2019s src folder. */
   src: string;
-  /** Remotes a host consumes; empty for a remote. */
+  /** Remotes a host consumes. Empty for a remote. */
   remotes: string[];
-  /** Modules a remote exposes; empty for a host. */
+  /** Modules a remote exposes. Empty for a host. */
   exposes: Record<string, string>;
 }
 
@@ -132,9 +132,12 @@ export interface SpoolServerConfig {
   cors?: boolean;
 }
 
+export type SpoolShareStrategy = "version-first" | "loaded-first";
+
 export interface SpoolManifest {
   name: string;
   shared?: string[];
+  shareStrategy?: SpoolShareStrategy;
   server?: SpoolServerConfig;
   apps: Record<string, SpoolAppEntry>;
 }
@@ -150,6 +153,7 @@ export interface SpoolAppConfig {
     remotes?: Record<string, string>;
     exposes?: Record<string, string>;
     shared: Record<string, { singleton: boolean }>;
+    shareStrategy: SpoolShareStrategy;
     dts: false;
   };
 }
@@ -166,9 +170,9 @@ function findManifest(from: string): string {
 }
 
 /**
- * Remote lookup order: SPOOL_REMOTE_<NAME> env var, the remote's url for the
- * SPOOL_ENV environment, its default "url" (production builds only, so dev
- * keeps hitting local servers), then the local dev server.
+ * Remote lookup order. The SPOOL_REMOTE_<NAME> env var, then the remote's url
+ * for the current SPOOL_ENV, then its plain url, then the local dev server.
+ * Only builds read the deployed urls, so dev always stays on localhost.
  */
 function remoteUrl(name: string, app: SpoolAppEntry, command: SpoolCommand): string {
   const envKey = "SPOOL_REMOTE_" + name.toUpperCase().replace(/-/g, "_");
@@ -183,8 +187,8 @@ function remoteUrl(name: string, app: SpoolAppEntry, command: SpoolCommand): str
 export type SpoolCommand = "build" | "serve";
 
 /**
- * Shared deps the app does not declare in its own package.json are dropped,
- * so apps on different frameworks never share deps they don't install.
+ * A shared dep the app has not declared in its own package.json is dropped, so
+ * apps on different frameworks never share something they do not install.
  */
 function declaredShared(dir: string, deps: string[]): string[] {
   if (!deps.length) return deps;
@@ -199,8 +203,7 @@ function declaredShared(dir: string, deps: string[]): string[] {
       ...Object.keys(pkg.devDependencies ?? {}),
     ]);
   } catch {
-    // Sharing nothing is safe (the app just bundles its own copies); sharing
-    // deps the app may not have installed is not.
+    // Better to share nothing than to share a dep the app never installed.
     console.warn(
       "[spool] could not read " + join(dir, "package.json") + "; sharing no deps for this app. Run spool doctor."
     );
@@ -244,17 +247,17 @@ export function spoolApp(
   const app = manifest.apps[name];
   if (!app) throw new Error('spool.vite: no app named "' + name + '" in spool.json');
 
-  // Singleton for every share: duplicated react breaks hooks, and workspace
-  // packages often carry module-level state that must resolve to one copy.
-  // Non-singleton workspace shares also hit a @module-federation/vite dev bug
-  // where the generated loadShare module references __mfLocalShare without
-  // importing it, crashing the app at boot.
+  // Every share is a singleton. Two copies of react break hooks, and workspace
+  // packages carry module state that has to resolve to one copy.
   const shared = Object.fromEntries(
     declaredShared(from, manifest.shared ?? []).map(dep => [dep, { singleton: true }])
   );
-  // cors covers dev and vite preview, where hosts fetch remotes cross-origin.
-  // Manifest settings come last so a workspace can override the defaults,
-  // but never the port, which the app entry owns.
+  // loaded-first keeps share scope off the remotes, so one remote you cannot
+  // reach does not hold the page blank while it retries.
+  const shareStrategy: SpoolShareStrategy = manifest.shareStrategy ?? "loaded-first";
+  // cors covers dev and preview, where a host fetches remotes cross-origin.
+  // Manifest settings come last so a workspace can override them, but never the
+  // port, which the app owns.
   const server = {
     port: app.port,
     strictPort: true,
@@ -271,11 +274,13 @@ export function spoolApp(
       }
       remotes[remote] = remoteUrl(remote, target, command);
     }
-    // dts:false: spool types remotes via src/remotes.d.ts, so the federation
-    // DTS archive is redundant and its dev-server download is flaky.
-    // manifest:true so a host records what it resolved for every shared dep,
-    // which is what spool build compares across apps. Nothing loads it.
-    return { server, federation: { name, remotes, shared, manifest: true, dts: false } };
+    // Remotes are typed through src/remotes.d.ts, so the DTS archive is
+    // redundant and flaky to download. Hosts still write a manifest because
+    // spool build compares what every app resolved.
+    return {
+      server,
+      federation: { name, remotes, shared, shareStrategy, manifest: true, dts: false },
+    };
   }
 
   return {
@@ -283,11 +288,12 @@ export function spoolApp(
     federation: {
       name,
       filename: "remoteEntry.js",
-      // Dev serves mf-manifest.json automatically; builds only emit it with
-      // this flag, and hosts load remotes by their manifest URL.
+      // Dev serves mf-manifest.json on its own. Builds only write it with this
+      // flag, and that is the file a host loads.
       manifest: true,
       exposes: app.exposes ?? {},
       shared,
+      shareStrategy,
       dts: false,
     },
   };

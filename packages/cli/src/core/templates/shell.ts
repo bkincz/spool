@@ -230,7 +230,7 @@ export interface RemoteProps {
   name: string;
   /** Shown while the remote is still loading. */
   fallback?: ReactNode;
-  /** Shown when it fails to load; retry re-attempts from scratch. */
+  /** Shown when it fails to load. Call retry to start the load over. */
   renderError?: (error: Error, retry: () => void) => ReactNode;
   onError?: (error: Error, name: string) => void;
 }
@@ -280,7 +280,7 @@ function ComponentRemote({ name, load }: { name: string; load: () => Promise<unk
 
 function MountRemote({ load }: { load: () => Promise<{ default: unknown }> }) {
   const ref = useRef<HTMLDivElement>(null);
-  // Rethrown during render: a boundary cannot catch a rejected promise.
+  // Rethrown during render, because a boundary cannot catch a rejected promise.
   const [failure, setFailure] = useState<Error | null>(null);
   if (failure) throw failure;
 
@@ -331,7 +331,7 @@ class RemoteBoundary extends Component<BoundaryProps, { error: Error | null }> {
 const asError = (cause: unknown): Error =>
   cause instanceof Error ? cause : new Error(String(cause));
 
-/** Unstyled on purpose: pass renderError to make it yours. */
+/** Unstyled on purpose. Pass renderError to make it yours. */
 function defaultError(_error: Error, retry: () => void): ReactNode {
   return (
     <div role="alert" data-remote-error="">
@@ -479,8 +479,8 @@ function routesLiteral(routes: Record<string, string>): string {
 function reactShellHost(appName: string, routes: Record<string, string>): string {
 	return `import { Remote, useLocation, navigate, matchRoute } from "@/shell";
 
-// Map url prefixes to remote names. Edit freely; add persistent regions by
-// rendering <Remote name="..." /> outside the routed <main>.
+// Map url prefixes to remote names. Edit freely. For a region that stays put,
+// render <Remote name="..." /> outside the routed <main>.
 const routes: Record<string, string> = ${routesLiteral(routes)};
 
 export default function App() {
