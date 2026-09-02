@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.6.2
+
+- An unreachable remote no longer holds the whole page blank. Share scope was
+  initialised before anything could render, and a remote that failed to answer
+  was retried twenty times first. Federation now runs
+  `shareStrategy: 'loaded-first'`, so the failure lands on the import that needs
+  the remote, where a host's error boundary catches it. New `shareStrategy` key
+  in `spool.json`. `version-first` restores the old behaviour.
+
 ## 2.6.1
 
 - `spool doctor` no longer asks a local package to declare the shared list.

@@ -116,6 +116,8 @@ export const ManifestSchema = z
 		bundler: z.enum(['vite']).default('vite'),
 		/** Deps shared as singletons across federation boundary. */
 		shared: z.array(z.string()).default(['react', 'react-dom']),
+		/** When the runtime resolves shared versions. See the helper for why this defaults away from upstream. */
+		shareStrategy: z.enum(['version-first', 'loaded-first']).default('loaded-first'),
 		/** Dev server settings shared by every app, e.g. a backend proxy. */
 		server: ServerSchema.optional(),
 		/** Enabled addons whose wiring isn't captured elsewhere in the manifest. */

@@ -33,6 +33,7 @@ describe('emptyManifest', () => {
 			packageManager: 'pnpm',
 			bundler: 'vite',
 			shared: ['react', 'react-dom'],
+			shareStrategy: 'loaded-first',
 			addons: [],
 			apps: {},
 		})

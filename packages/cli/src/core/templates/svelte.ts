@@ -64,8 +64,8 @@ function svelteMount(): string {
 	return `import { mount, unmount } from "svelte";
 import App from "./app/app.svelte";
 
-// The contract non-react remotes expose: any host mounts this into a DOM
-// node it owns and calls the returned cleanup on teardown.
+// What non-react remotes expose. A host mounts this into a node it owns and
+// calls the returned cleanup on teardown.
 export default function mountApp(target: HTMLElement): () => void {
   const app = mount(App, { target });
   return () => {

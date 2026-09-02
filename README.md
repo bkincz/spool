@@ -87,6 +87,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | Field                    | Description                                                       |
 | ------------------------ | ----------------------------------------------------------------- |
 | `shared`                 | Deps shared as singletons across apps                             |
+| `shareStrategy`          | Optional. How shared versions resolve: `loaded-first` (default) or `version-first` |
 | `apps.<name>.type`       | `host` consumes remotes, `remote` exposes modules                 |
 | `apps.<name>.framework`  | `react` (default), `svelte`, or `vue`                             |
 | `apps.<name>.port`       | Dev server port                                                   |
@@ -96,6 +97,8 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | `server`                 | Optional. Dev server settings every app gets: `proxy`, `headers`, `host`, `cors` |
 | `apps.<name>.remotes`    | Remotes a host consumes                                           |
 | `apps.<name>.exposes`    | Modules a remote exposes                                          |
+
+`shareStrategy` is `loaded-first`, so an unreachable remote fails on the import that needs it instead of holding the page blank while every shared module waits on its manifest. Every share is a singleton, which leaves `version-first` little to decide, but it is there if you want it.
 
 Settings every app needs from the dev server go in `server`, so you never edit a generated `vite.config.ts`:
 

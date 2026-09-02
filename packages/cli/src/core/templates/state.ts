@@ -16,10 +16,9 @@ export interface CounterState {
   count: number;
 }
 
-// validate() takes any predicate so you can swap in a zod/valibot/arktype schema here
-// for richer shapes. When CounterState's shape changes, bump \`version\` and migrate
-// older shapes below. This way a newer app then migrates the shared state in place.
-// Keep changes additive so apps still on the old shape tolerate the new one.
+// validate() takes any predicate, so a zod or valibot schema drops in here.
+// Bump \`version\` when the shape changes and migrate below. Keep it additive
+// so apps still on the old shape keep working.
 export const counterMachine = sharedMachine(
   "${m.name}:counter",
   () =>
