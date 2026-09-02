@@ -103,6 +103,44 @@ describe('resolveRanges across the whole workspace', () => {
 })
 
 /*
+ *   WHO HAS TO DECLARE A SHARE
+ ***************************************************************************************************/
+describe('missing shared deps', () => {
+	it('asks an app for a share it has not declared', () => {
+		const ws = workspace()
+		ws.manifest.shared = ['react', 'zod']
+		pkg('apps/shell', { name: 'shell', dependencies: { react: '^19.2.0' } })
+
+		const apps = diagnose(ws)
+			.filter(d => d.message.includes('"zod" is not in'))
+			.map(d => d.app)
+
+		expect(apps).toContain('shell')
+	})
+
+	it('never asks a local package for one', () => {
+		const ws = workspace()
+		ws.manifest.shared = ['react', 'zod', 'ui']
+		pkg('packages/ui', { name: 'ui', dependencies: { react: '^19.2.0' } })
+
+		const issues = diagnose(ws).filter(d => d.app === 'packages/ui')
+
+		expect(issues).toEqual([])
+	})
+
+	it('still reads a local package for version drift', () => {
+		const ws = workspace()
+		pkg('apps/shell', { name: 'shell', dependencies: { react: '^19.2.0' } })
+		pkg('apps/dashboard', { name: 'dashboard', dependencies: { react: '^19.2.0' } })
+		pkg('packages/ui', { name: 'ui', dependencies: { react: '^21.0.0' } })
+
+		const issue = diagnose(ws).find(d => d.message.includes('mismatched versions'))
+
+		expect(issue?.message).toContain('packages/ui')
+	})
+})
+
+/*
  *   EXPOSED FILES
  ***************************************************************************************************/
 describe('exposed file checks', () => {
