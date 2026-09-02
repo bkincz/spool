@@ -83,13 +83,13 @@ describe('upgrade', () => {
 
 	it('adds missing files without touching existing ones', async () => {
 		ageWorkspace()
-		writeFileSync(join(dir, 'apps/shell/src/App.tsx'), '// my custom layout\n')
+		writeFileSync(join(dir, 'apps/shell/src/app/app.tsx'), '// my custom layout\n')
 		await upgrade({})
 
 		expect(existsSync(join(dir, 'apps/dashboard/public/_headers'))).toBe(true)
 		expect(existsSync(join(dir, 'tsconfig.json'))).toBe(true)
 		expect(existsSync(join(dir, '.prettierignore'))).toBe(true)
-		expect(read('apps/shell/src/App.tsx')).toBe('// my custom layout\n')
+		expect(read('apps/shell/src/app/app.tsx')).toBe('// my custom layout\n')
 	})
 
 	it('syncs toolchain deps and adds missing ones in the right section', async () => {
@@ -387,6 +387,32 @@ describe('upgrade', () => {
 		expect(read(PROVENANCE_FILE)).toBe(aged)
 		expect(before).not.toBe(aged)
 	})
+
+	it('forces only the paths it is given', async () => {
+		const helper = `${read('spool.vite.ts')}
+// mine
+`
+		const config = `${read('apps/shell/vite.config.ts')}
+// also mine
+`
+		writeFileSync(join(dir, 'spool.vite.ts'), helper)
+		writeFileSync(join(dir, 'apps/shell/vite.config.ts'), config)
+
+		await upgrade({ force: ['spool.vite.ts'] })
+
+		expect(read('spool.vite.ts')).not.toBe(helper)
+		expect(read('apps/shell/vite.config.ts')).toBe(config)
+	})
+
+	it('names the workspace helper when it first appears', async () => {
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
+		rmSync(join(dir, 'spool.workspace.ts'))
+
+		await upgrade({})
+
+		expect(step).toHaveBeenCalledWith(expect.stringContaining('spool.workspace.ts is new'))
+	})
+
 	it('skips apps whose folders are missing', async () => {
 		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, 'apps/dashboard'), { recursive: true })

@@ -76,7 +76,7 @@ describe('spool.workspace.ts', () => {
 			path: 'apps/billing',
 			port: 5199,
 			remotes: [],
-			exposes: { './App': './src/App.tsx' },
+			exposes: { './App': './src/app/app.tsx' },
 		}
 		writeJson('spool.json', manifest)
 

@@ -36,7 +36,7 @@ declare module "*.vue" {
 	sourceFiles: (appName, isHost, refs, extras) => {
 		const files: Record<string, string> = {
 			'src/main.ts': vueMain(extras),
-			'src/App.vue': isHost
+			'src/app/app.vue': isHost
 				? vueHostAppFile(appName, refs, extras)
 				: vueRemoteApp(appName, extras),
 		}
@@ -53,13 +53,13 @@ declare module "*.vue" {
 function vueMain(extras: TemplateExtras): string {
 	if (!extras.sentry) {
 		return `import { createApp } from "vue";
-import App from "./App.vue";
+import App from "./app/app.vue";
 
 createApp(App).mount("#root");
 `
 	}
 	return `import { createApp } from "vue";
-import App from "./App.vue";
+import App from "./app/app.vue";
 import { initSentry } from "./sentry";
 
 const app = createApp(App);
@@ -70,7 +70,7 @@ app.mount("#root");
 
 function vueMount(): string {
 	return `import { createApp } from "vue";
-import App from "./App.vue";
+import App from "./app/app.vue";
 
 // The contract non-react remotes expose: any host mounts this into a DOM
 // node it owns and calls the returned cleanup on teardown.
@@ -227,5 +227,5 @@ function mountHint(ref: RemoteRef, hostName: string): MountHint {
 	if (ref.contract === 'component') {
 		lines.unshift(`import { mountReact } from "./react-bridge";`)
 	}
-	return { intro: `To mount it, edit apps/${hostName}/src/App.vue:`, lines }
+	return { intro: `To mount it, edit apps/${hostName}/src/app/app.vue:`, lines }
 }

@@ -75,7 +75,7 @@ describe('addon', () => {
 			expect(counter).toContain('validate<CounterState>')
 			expect(counter).toContain('version: 1')
 			// Retroactive adds never rewrite app components with the example.
-			expect(read(`apps/${app}/src/App.tsx`)).not.toContain('counterMachine')
+			expect(read(`apps/${app}/src/app/app.tsx`)).not.toContain('counterMachine')
 		}
 	})
 

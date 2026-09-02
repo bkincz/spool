@@ -109,7 +109,7 @@ async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean):
 
 				return done
 			},
-			{ write: !dryRun }
+			{ write: !dryRun, root: ws.root }
 		)
 		if (changes.length) {
 			log.step(`${name}: ${verb} package.json (${changes.join(', ')})`)

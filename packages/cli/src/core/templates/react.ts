@@ -9,7 +9,7 @@ import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './
 
 export const reactTemplate: FrameworkTemplate = {
 	remoteContract: 'component',
-	exposeEntry: './src/App.tsx',
+	exposeEntry: './src/app/app.tsx',
 	htmlEntry: '/src/main.tsx',
 	viteEnv: `/// <reference types="vite/client" />\n`,
 	compilerOptions: { jsx: 'react-jsx' },
@@ -18,7 +18,8 @@ export const reactTemplate: FrameworkTemplate = {
 		`declare module "${name}/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`,
 	sourceFiles: (appName, isHost, refs, extras) => ({
 		'src/main.tsx': mainTsx(extras),
-		'src/App.tsx': isHost ? hostAppFile(appName, refs, extras) : remoteApp(appName, extras),
+		'src/app/app.tsx': isHost ? hostAppFile(appName, refs, extras) : remoteApp(appName, extras),
+		'src/app/app.module.css': appStyles(),
 	}),
 	bridgeFiles: () => ({}),
 	mountHint,
@@ -32,7 +33,7 @@ function mainTsx(extras: TemplateExtras): string {
 	const sentryCall = extras.sentry ? `initSentry();\n\n` : ''
 	return `${sentryImport}import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import App from "@/app/app";
 
 ${sentryCall}createRoot(document.getElementById("root")!).render(
   <StrictMode>
@@ -59,6 +60,20 @@ function MountRemote({ load }: { load: () => Promise<{ default: (el: HTMLElement
   }, [load]);
   return <div ref={ref} />;
 }`
+
+function appStyles(): string {
+	return `.app {
+  font-family: system-ui;
+  padding: 1rem;
+  border: 1px solid #ccc;
+}
+
+.host {
+  font-family: system-ui;
+  padding: 1.5rem;
+}
+`
+}
 
 function hostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
 	return extras.shell ? shellHostApp('react', appName, refs) : hostApp(appName, refs, extras)
@@ -103,10 +118,12 @@ function hostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): st
 	return `import { ${reactImports.join(', ')} } from "react";
 ${stateImports}
 ${imports || noRemotes}
+
+import styles from "./app.module.css";
 ${mountRefs.length ? `\n${MOUNT_REMOTE_COMPONENT}\n` : ''}
 export default function App() {
 ${stateHook}  return (
-    <main style={{ fontFamily: "system-ui", padding: 24 }}>
+    <main className={styles.host}>
       <h1>${appName} (host)</h1>${stateLine}
 ${sections || '      <p>No remotes mounted yet.</p>'}
     </main>
@@ -117,9 +134,11 @@ ${sections || '      <p>No remotes mounted yet.</p>'}
 
 function remoteApp(appName: string, extras: TemplateExtras): string {
 	if (!extras.stateExample) {
-		return `export default function App() {
+		return `import styles from "./app.module.css";
+
+export default function App() {
   return (
-    <div style={{ fontFamily: "system-ui", padding: 16, border: "1px solid #ccc" }}>
+    <div className={styles.app}>
       <strong>${appName}</strong>: a remote module exposed via Module Federation.
     </div>
   );
@@ -135,6 +154,8 @@ function remoteApp(appName: string, extras: TemplateExtras): string {
 	return `import { useMachine } from "@bkincz/clutch/react";
 import { counterMachine } from "${STATE_STORE_IMPORT}";${buttonImport}
 
+import styles from "./app.module.css";
+
 export default function App() {
   const { state, mutate } = useMachine(counterMachine);
   const increment = () =>
@@ -142,7 +163,7 @@ export default function App() {
       draft.count += 1;
     });
   return (
-    <div style={{ fontFamily: "system-ui", padding: 16, border: "1px solid #ccc" }}>
+    <div className={styles.app}>
       <p>
         <strong>${appName}</strong>: a remote module exposed via Module Federation.
       </p>
@@ -159,7 +180,7 @@ export default function App() {
  ***************************************************************************************************/
 function mountHint(ref: RemoteRef, hostName: string): MountHint {
 	const comp = pascalCase(ref.name)
-	const intro = `To mount it, edit apps/${hostName}/src/App.tsx:`
+	const intro = `To mount it, edit apps/${hostName}/src/app/app.tsx:`
 	if (ref.contract === 'component') {
 		return {
 			intro,

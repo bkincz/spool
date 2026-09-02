@@ -218,7 +218,7 @@ describe('shell addon', () => {
 	it('replaces the host app with the starter shell that imports from @/shell', () => {
 		const m = build()
 		const shellHost = appFiles(m, 'shell', m.apps.shell!, { ...NO_EXTRAS, shell: true })[
-			'src/App.tsx'
+			'src/app/app.tsx'
 		]!
 		expect(shellHost).toContain('matchRoute')
 		expect(shellHost).toContain('<Remote name={active} />')
@@ -275,7 +275,7 @@ describe('starter shell per framework', () => {
 			r: remote({ path: 'apps/r', framework: remoteFw }),
 		})
 		return appFiles(m, 'shell', m.apps.shell!, shell)[
-			fw === 'svelte' ? 'src/App.svelte' : 'src/App.vue'
+			fw === 'svelte' ? 'src/app/app.svelte' : 'src/app/app.vue'
 		]!
 	}
 

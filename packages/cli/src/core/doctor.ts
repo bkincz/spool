@@ -7,6 +7,7 @@ import type { Workspace } from './workspace.js'
 import { HELPER_FILE, type Framework, type Manifest } from './config.js'
 import { FRAMEWORK_DEPS } from './versions.js'
 import { readPackageJson } from './packages.js'
+import { labelledMembers } from './packages-glob.js'
 import { resolveRanges, type RangeInfo } from './ranges.js'
 import { isUpgrade } from '../util/semver.js'
 import { packageName, remoteEnvVar } from '../util/names.js'
@@ -49,6 +50,7 @@ export function diagnose(ws: Workspace): Diagnostic[] {
 		...checkPaths(ws.root, apps),
 		...checkRemotes(apps),
 		...checkExposure(apps),
+		...checkExposedFiles(ws.root, apps),
 		...checkSharedDeps(ws, targets),
 		...checkManagedVersions(ws, targets),
 		...checkFrameworkShared(ws),
@@ -173,12 +175,12 @@ function collectSharedRanges(
 	const sharedPackages = [...new Set(ws.manifest.shared.map(packageName))]
 	const ranges: SharedRanges = new Map()
 
-	for (const [name, app] of Object.entries(ws.manifest.apps)) {
-		const deps = declaredRanges(ws, name, app.path, issues)
+	for (const [name, path] of labelledMembers(ws)) {
+		const deps = declaredRanges(ws, name, path, issues)
 
 		if (!deps) continue
 
-		const foreign = foreignRuntimes(app.framework)
+		const foreign = foreignRuntimes(ws.manifest.apps[name]?.framework)
 
 		for (const dep of sharedPackages) {
 			const range = deps[dep]
@@ -217,7 +219,7 @@ function declaredRanges(
  * means the runtime helper silently drops the singleton for this app and it
  * bundles a private copy.
  */
-function foreignRuntimes(framework: Framework): Set<string> {
+function foreignRuntimes(framework: Framework | undefined): Set<string> {
 	return new Set(
 		Object.entries(FRAMEWORK_DEPS)
 			.filter(([name]) => name !== framework)
@@ -377,6 +379,27 @@ async function checkDeployedRemote(name: string, url: string): Promise<Diagnosti
 				`${url} sends no Access-Control-Allow-Origin header, so browsers will block hosts on other origins. Deploy the remote's public/_headers file, or configure the header on your host.`
 			)
 		)
+	}
+
+	return issues
+}
+
+function checkExposedFiles(root: string, apps: Apps): Diagnostic[] {
+	const issues: Diagnostic[] = []
+
+	for (const [name, app] of Object.entries(apps)) {
+		if (!existsSync(join(root, app.path))) continue
+
+		for (const [key, source] of Object.entries(app.exposes)) {
+			if (existsSync(join(root, app.path, source))) continue
+
+			issues.push(
+				error(
+					name,
+					`It exposes "${key}" from "${source}", which is not there. The build cannot emit a remote entry for it.`
+				)
+			)
+		}
 	}
 
 	return issues

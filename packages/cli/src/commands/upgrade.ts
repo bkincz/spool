@@ -3,9 +3,9 @@
  ***************************************************************************************************/
 import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { findWorkspaceRoot, type Workspace } from '../core/workspace.js'
-import { MANIFEST_FILE, parseManifest } from '../core/config.js'
+import { MANIFEST_FILE, WORKSPACE_FILE, parseManifest } from '../core/config.js'
 import { appDependencies, NODE_RANGE, PNPM_VERSION, rootDevDependencies } from '../core/versions.js'
 import {
 	appConfigFiles,
@@ -29,7 +29,8 @@ import { isUpgrade } from '../util/semver.js'
 export interface UpgradeOptions {
 	dryRun?: boolean
 	pin?: boolean
-	force?: boolean
+	/** true forces every file; a list of paths forces only those. */
+	force?: boolean | string[]
 }
 
 interface UpgradeContext {
@@ -62,7 +63,12 @@ const targetRange = (ctx: UpgradeContext, dep: string, ours: string): string =>
 export async function upgrade(opts: UpgradeOptions): Promise<void> {
 	const root = findWorkspaceRoot()
 	const provenance = root === null ? null : Provenance.load(root)
-	const writer = new ChangeWriter(opts.dryRun ?? false, provenance, opts.force ?? false)
+	const writer = new ChangeWriter(
+		root ?? process.cwd(),
+		opts.dryRun ?? false,
+		provenance,
+		opts.force ?? false
+	)
 	const ws = await loadForUpgrade(writer)
 	const ctx: UpgradeContext = { ws, writer, pin: opts.pin ?? false, ranges: resolveRanges(ws) }
 
@@ -76,7 +82,8 @@ export async function upgrade(opts: UpgradeOptions): Promise<void> {
 		}
 
 		const generated = await formatFiles(
-			appConfigFiles(name, app, ws.manifest.addons.includes('sentry'))
+			appConfigFiles(name, app, ws.manifest.addons.includes('sentry')),
+			ws.root
 		)
 
 		await writer.replaceGenerated(dir, 'vite.config.ts', generated['vite.config.ts']!, name)
@@ -84,7 +91,7 @@ export async function upgrade(opts: UpgradeOptions): Promise<void> {
 			await writer.add(dir, 'public/_headers', generated['public/_headers']!, name)
 		}
 
-		const typings = await formatFiles(hostWiringFiles(ws.manifest, app))
+		const typings = await formatFiles(hostWiringFiles(ws.manifest, app), ws.root)
 		for (const [rel, content] of Object.entries(typings)) {
 			await writer.replace(dir, rel, content, name)
 		}
@@ -93,6 +100,7 @@ export async function upgrade(opts: UpgradeOptions): Promise<void> {
 	}
 
 	if (!opts.dryRun) await provenance?.save()
+	noteNewCapabilities(writer)
 	writer.summarize(ws)
 }
 
@@ -118,17 +126,20 @@ async function loadForUpgrade(writer: ChangeWriter): Promise<Workspace> {
 
 async function upgradeRoot(ctx: UpgradeContext): Promise<void> {
 	const { ws, writer, pin } = ctx
-	const helper = await formatFiles(helperFiles())
+	const helper = await formatFiles(helperFiles(), ws.root)
 
 	for (const [rel, content] of Object.entries(helper)) {
 		await writer.replaceGenerated(ws.root, rel, content, 'workspace')
 	}
 
 	const rootFiles = workspaceFiles(ws.manifest)
-	const rootConfigs = await formatFiles({
-		'tsconfig.json': rootFiles['tsconfig.json']!,
-		'.prettierignore': rootFiles['.prettierignore']!,
-	})
+	const rootConfigs = await formatFiles(
+		{
+			'tsconfig.json': rootFiles['tsconfig.json']!,
+			'.prettierignore': rootFiles['.prettierignore']!,
+		},
+		ws.root
+	)
 
 	for (const [rel, content] of Object.entries(rootConfigs)) {
 		await writer.add(ws.root, rel, content, 'workspace')
@@ -211,20 +222,30 @@ async function upgradeAppPackage(ctx: UpgradeContext, name: string, dir: string)
 	})
 }
 
+function noteNewCapabilities(writer: ChangeWriter): void {
+	if (!writer.added.has(WORKSPACE_FILE)) return
+
+	log.step(
+		`${WORKSPACE_FILE} is new: import { apps, hosts, remotes, srcDirs } from it for anything that has to cover every app.`
+	)
+}
+
 /*
  *   CHANGE WRITER
  ***************************************************************************************************/
 class ChangeWriter {
 	public changed = 0
+	public readonly added = new Set<string>()
 	private kept = 0
 	private skipped = 0
 	/** Set once the user answers "every file" either way. */
 	private overwriteAll: boolean | null = null
 
 	constructor(
+		private readonly root: string,
 		private readonly dryRun: boolean,
 		private readonly provenance: Provenance | null,
-		private readonly force: boolean
+		private readonly force: boolean | string[]
 	) {}
 
 	private get verb(): string {
@@ -235,6 +256,8 @@ class ChangeWriter {
 		const target = join(dir, rel)
 		const existing = existsSync(target) ? await readFile(target, 'utf8') : null
 		if (existing === content) return
+
+		if (existing === null) this.added.add(rel)
 
 		this.changed++
 		log.step(`${label}: ${this.verb} ${rel}`)
@@ -305,7 +328,7 @@ class ChangeWriter {
 		label: string,
 		reason: OverwriteReason
 	): Promise<boolean> {
-		if (this.force) return true
+		if (this.forces(dir, rel)) return true
 
 		if (this.dryRun) {
 			log.step(`${label}: ${rel} ${REASONS[reason]}; would ask before overwriting`)
@@ -353,6 +376,15 @@ class ChangeWriter {
 		return this.overwriteAll
 	}
 
+	/** --force with no paths forces every file; with paths, only those. */
+	private forces(dir: string, rel: string): boolean {
+		if (typeof this.force === 'boolean') return this.force
+
+		const target = relative(this.root, join(dir, rel)).split(sep).join('/')
+
+		return this.force.some(entry => entry.split(sep).join('/') === target)
+	}
+
 	private keep(dir: string, rel: string): void {
 		this.provenance?.claim(dir, rel)
 		this.skipped++
@@ -362,6 +394,7 @@ class ChangeWriter {
 		if (existsSync(join(dir, rel))) return
 
 		this.changed++
+		this.added.add(rel)
 		log.step(`${label}: ${this.dryRun ? 'would add' : 'added'} ${rel}`)
 
 		if (!this.dryRun) {
@@ -378,7 +411,10 @@ class ChangeWriter {
 		label: string,
 		edit: (pkg: PackageJsonShape) => string[]
 	): Promise<void> {
-		const changes = await editJsonFile(join(dir, rel), edit, { write: !this.dryRun })
+		const changes = await editJsonFile(join(dir, rel), edit, {
+			write: !this.dryRun,
+			root: this.root,
+		})
 		if (!changes.length) return
 
 		this.changed++

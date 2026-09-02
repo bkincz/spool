@@ -6,7 +6,7 @@ import type { RemoteRef } from './index.js'
 
 /** The state addon's store module: where it is written and how apps import it. */
 export const STATE_STORE_FILE = 'src/state/counter.ts'
-export const STATE_STORE_IMPORT = './state/counter'
+export const STATE_STORE_IMPORT = '@/state/counter'
 
 /** Shared-counter example strings; the generated e2e test asserts these exactly. */
 export const STATE_COUNT_TESTID = 'shell-count'

@@ -1,6 +1,7 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
+import { join } from 'node:path'
 import type { FileMap } from './filemap.js'
 
 /*
@@ -29,23 +30,41 @@ export const PRETTIER_OPTIONS = {
 // prettier's import cost at startup.
 const prettier = () => import('prettier')
 
+async function optionsFor(root: string | undefined): Promise<Record<string, unknown>> {
+	if (root === undefined) return { ...PRETTIER_OPTIONS }
+
+	const { resolveConfig } = await prettier()
+
+	try {
+		const found = await resolveConfig(join(root, 'package.json'))
+		return found ? { ...PRETTIER_OPTIONS, ...found } : { ...PRETTIER_OPTIONS }
+	} catch {
+		return { ...PRETTIER_OPTIONS }
+	}
+}
+
 /** Format one file; the parser is inferred from `filepath`. */
-export async function formatFile(filepath: string, content: string): Promise<string> {
+export async function formatFile(
+	filepath: string,
+	content: string,
+	root?: string
+): Promise<string> {
 	const { format } = await prettier()
-	return format(content, { ...PRETTIER_OPTIONS, filepath })
+	return format(content, { ...(await optionsFor(root)), filepath })
 }
 
 /**
  * Format every file prettier has a parser for. Files it does not understand
  * (.gitignore, .yarnrc.yml) pass through untouched.
  */
-export async function formatFiles(files: FileMap): Promise<FileMap> {
+export async function formatFiles(files: FileMap, root?: string): Promise<FileMap> {
 	const { format, getFileInfo } = await prettier()
+	const options = await optionsFor(root)
 	const entries = await Promise.all(
 		Object.entries(files).map(async ([rel, content]): Promise<[string, string]> => {
 			const { inferredParser } = await getFileInfo(rel)
 			if (!inferredParser) return [rel, content]
-			return [rel, await format(content, { ...PRETTIER_OPTIONS, filepath: rel })]
+			return [rel, await format(content, { ...options, filepath: rel })]
 		})
 	)
 	return Object.fromEntries(entries)

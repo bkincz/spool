@@ -161,7 +161,7 @@ describe('add', () => {
 		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
 		const plain = vi.spyOn(log, 'plain').mockImplementation(() => {})
 		await add('widget', { framework: 'svelte', install: false })
-		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/shell/src/App.tsx'))
+		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/shell/src/app/app.tsx'))
 		expect(plain).toHaveBeenCalledWith(expect.stringContaining('function MountRemote'))
 	})
 
@@ -171,7 +171,7 @@ describe('add', () => {
 		await add('billing', { host: 'panel', install: false })
 
 		expect(read('apps/panel/src/react-bridge.ts')).toContain('mountReact')
-		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/panel/src/App.svelte'))
+		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/panel/src/app/app.svelte'))
 	})
 
 	it('rejects an unknown framework', async () => {
@@ -190,7 +190,7 @@ describe('add', () => {
 		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
 		const plain = vi.spyOn(log, 'plain').mockImplementation(() => {})
 		await add('settings', { install: false })
-		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/shell/src/App.tsx'))
+		expect(step).toHaveBeenCalledWith(expect.stringContaining('apps/shell/src/app/app.tsx'))
 		expect(plain).toHaveBeenCalledWith(expect.stringContaining('import("settings/App")'))
 		expect(plain).toHaveBeenCalledWith(expect.stringContaining('Settings'))
 	})

@@ -73,7 +73,7 @@ ${entries.join('\n')}
 export function shellNotes(composed: boolean): string[] {
 	if (composed) {
 		return [
-			'shell: the host starts as a routed shell in src/App. Mount any remote with <Remote name="..." />, read the url with useLocation(), and navigate() to change it.',
+			'shell: the host starts as a routed shell in src/app. Mount any remote with <Remote name="..." />, read the url with useLocation(), and navigate() to change it.',
 		]
 	}
 	return [
