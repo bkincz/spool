@@ -180,13 +180,14 @@ function collectSharedRanges(
 
 		if (!deps) continue
 
-		const foreign = foreignRuntimes(ws.manifest.apps[name]?.framework)
+		const app = ws.manifest.apps[name]
+		const foreign = foreignRuntimes(app?.framework)
 
 		for (const dep of sharedPackages) {
 			const range = deps[dep]
 
 			if (range === undefined) {
-				if (!foreign.has(dep)) issues.push(missingShared(name, dep, targets))
+				if (app && !foreign.has(dep)) issues.push(missingShared(name, dep, targets))
 				continue
 			}
 
