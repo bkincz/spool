@@ -97,8 +97,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | `server`                 | Optional. Dev server settings every app gets: `proxy`, `headers`, `host`, `cors` |
 | `apps.<name>.remotes`    | Remotes a host consumes                                           |
 | `apps.<name>.exposes`    | Modules a remote exposes                                          |
-
-`shareStrategy` is `loaded-first`, so an unreachable remote fails on the import that needs it instead of holding the page blank while every shared module waits on its manifest. Every share is a singleton, which leaves `version-first` little to decide, but it is there if you want it.
+| `shareStrategy`          | Optional. `loaded-first` (default) or `version-first`             |
 
 Settings every app needs from the dev server go in `server`, so you never edit a generated `vite.config.ts`:
 
@@ -114,15 +113,24 @@ Settings every app needs from the dev server go in `server`, so you never edit a
 
 Typos fail loudly instead of being silently dropped, and `spool doctor` catches the rest after hand-editing.
 
-`spool upgrade` never overwrites your edits. Spool hashes every file it writes into `.spool/generated.json`, so a later run can tell its own output from yours. Edited files are offered, not replaced, and a keep is remembered. `--force` skips the asking; with no terminal nothing is overwritten.
+## Checks and upgrades
 
-`spool doctor --fix` repairs what it can: a shared dep an app forgot to declare, apps that disagree on a version, a framework runtime missing from `shared`. Versions converge on the highest range already in the workspace, so a workspace ahead of spool stays ahead. Anything it cannot compare is left alone and still reported. `--dry-run` shows the changes first.
-
-Apps in a tier build at once, since a host bakes in a remote url rather than reading its output. `--concurrency <n>` caps it, so the default leaves atleast one core free.
-
-After building, spool compares what each app actually resolved for every shared dep, read from the manifests the build just wrote. Ranges agreeing in package.json does not mean one copy shipped. Versions may differ, which means the build only fails when the one federation would load is outside another app’s required range, which is where a second copy appears.
-
-`spool ci` writes `.github/workflows/ci.yml`, which installs and then runs whichever of `doctor`, `type-check`, `lint`, `test`, and `build` your root package.json has. Apps with a `deploy` command also get a path-filtered `deploy-<app>.yml`. Both trigger on `branches: [main]`; change that if your default branch is named something else.
+- `spool doctor` checks ports, wiring, exposed files, and shared dep versions
+  across every workspace member. `--fix` repairs what it safely can, and
+  `--dry-run` shows the changes first.
+- `spool upgrade` never overwrites your edits. Spool hashes what it writes into
+  `.spool/generated.json`, so a later run can tell its own output from yours.
+  Edited files are offered, not replaced. `--force` skips the asking and takes
+  paths to limit it.
+- Versions only ever move forward, onto the highest range already in the
+  workspace, so a workspace ahead of spool stays ahead.
+- `spool build` runs a tier at once and then compares what each app resolved
+  for every shared dep, failing only when one app would load a version another
+  cannot accept. `--concurrency <n>` caps the parallelism.
+- `spool ci` writes a check workflow that runs whichever of `doctor`,
+  `type-check`, `lint`, `test`, and `build` your root package.json has, plus a
+  path-filtered deploy workflow per app with a `deploy` command. Both trigger
+  on `branches: [main]`.
 
 ## The app list
 
@@ -136,6 +144,9 @@ Each app has `name`, `type`, `framework`, `port`, absolute `dir` and `src`, `rem
 
 ## Frameworks
 
+Every app scaffolds into `src/app/app.tsx` with a co-located stylesheet, and
+`main.tsx` imports it through the `@` alias.
+
 Mix react, svelte, and vue freely. Every app picks its own framework. React remotes expose a component, svelte and vue remotes expose a mount function, and hosts consume each remote by its contract (non-react hosts get a small react bridge). Sharing applies per app: entries an app does not declare in its own package.json are dropped from its federation config, so a svelte remote never tries to share react.
 
 ## Extras
@@ -147,9 +158,9 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **ESLint**: one flat config at the root, with `typescript-eslint` plus the plugin each framework you use needs.
 - **Vitest**: a `vitest.config.ts` per app, separate from `vite.config.ts` because federation cannot run under a test. Hosts get their remotes stubbed in `src/test`, regenerated when the remote list changes. `type-check` scripts come with or without this addon.
 - **Turborepo**: a `turbo.json` that puts `spool.json`, the runtime helper, and the `SPOOL_ENV` / `SPOOL_REMOTE_*` variables into the cache key, so a wiring change never gets a stale hit. `spool dev` and `spool build` are unchanged; turbo covers the tasks spool does not run.
-- **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a small store module in every app so they all read and write one state instance per page. The store validates its shape on every change with a plain predicate (no validation library; swap in a zod/valibot/arktype schema if you want one). Bump its `version` and add a `migrate` when the shape changes, and a newer app migrates the shared state in place. Keep changes additive so apps on the old shape still tolerate the new one.
+- **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a store module in every app so they read and write one state instance per page. The store validates its shape on every change with a plain predicate, swap in a zod or valibot schema if you want one. Bump its `version` and add a `migrate` when the shape changes.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
-- **Shell**: a shared history (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks, all re-exported from `@/shell` (which maps to `src`). The host starts as an editable routed shell; compose one or many remotes into a view however you like. Back and forward work across remotes, and deep links resolve on load.
+- **Shell**: a shared history (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks, re-exported from `@/shell`. Back and forward work across remotes, and deep links resolve on load.
 
 `<Remote>` isolates failures. A remote that is mid-deploy or ships a broken chunk renders a placeholder with a retry instead of taking the host down. Pass `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
 
@@ -168,7 +179,7 @@ return (
 )
 ```
 
-Extras picked together at create time compose: with the state addon, remotes render a working counter and the host shows the live shared count, the counter uses the ladle ui button when both are picked, and the Playwright spec gains a test proving a remote's click updates the host. `spool addon` applies extras plainly, since it never rewrites components you may have edited.
+Extras picked together at create time compose. With the state addon every remote renders a working counter and the host shows the live count, and the Playwright spec gains a test proving a remote's click updates the host. `spool addon` never rewrites components you may have edited, and `--only` limits it to some apps.
 
 ## Deploying
 
