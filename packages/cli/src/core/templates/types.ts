@@ -9,6 +9,8 @@ export interface RemoteRef {
 	name: string
 	framework: Framework
 	contract: RemoteContract
+	/** Bare expose names the remote offers, e.g. ["App", "NewAssessment"]. */
+	exposes: string[]
 }
 
 export interface MountHint {
@@ -43,8 +45,8 @@ export interface FrameworkTemplate {
 	compilerOptions: Record<string, string>
 	/** Vite plugin wiring for the generated vite.config.ts. */
 	vitePlugin: { importLine: string; call: string }
-	/** Ambient module declaration for one remote of this framework. */
-	remoteTyping(name: string): string
+	/** Ambient module declarations for one remote of this framework, one per expose. */
+	remoteTyping(ref: RemoteRef): string
 	/** App sources: the entry file plus the App component, host or remote flavored. */
 	sourceFiles(
 		appName: string,

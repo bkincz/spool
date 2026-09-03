@@ -149,7 +149,7 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a store module in every app so they read and write one state instance per page. The store validates its shape on every change with a plain predicate, swap in a zod or valibot schema if you want one. Bump its `version` and add a `migrate` when the shape changes.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
 - **Navigation**: one url every bundle on the page agrees on, in `src/navigation`. `navigate` and `useLocation` ride on `window.history`, so back and forward work across remotes and deep links resolve on load.
-- **Federation**: a `<Remote name="..." />` primitive and the remote registry, in `src/federation`. Mounts any remote by name, across frameworks.
+- **Federation**: a `<Remote name="..." />` primitive and the remote registry, in `src/federation`. Mounts any remote by name, across frameworks. Every module a remote exposes gets a name, so `<Remote name="dashboard" />` is its app and `<Remote name="dashboard/Panel" />` is a widget it also offers.
 
 `<Remote>` isolates failures. A remote that is mid-deploy or ships a broken chunk renders a placeholder with a retry instead of taking the host down. Pass `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
 

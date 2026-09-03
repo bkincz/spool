@@ -17,11 +17,19 @@ export const TEMPLATES: Record<Framework, FrameworkTemplate> = {
  *   HELPERS
  ***************************************************************************************************/
 export function remoteRefs(m: Manifest, host: AppConfig): RemoteRef[] {
-	return host.remotes.map(name => remoteRef(name, m.apps[name]?.framework ?? DEFAULT_FRAMEWORK))
+	return host.remotes.map(name =>
+		remoteRef(name, m.apps[name]?.framework ?? DEFAULT_FRAMEWORK, exposeNames(m.apps[name]))
+	)
 }
 
-export function remoteRef(name: string, framework: Framework): RemoteRef {
-	return { name, framework, contract: TEMPLATES[framework].remoteContract }
+export function remoteRef(name: string, framework: Framework, exposes = ['App']): RemoteRef {
+	return { name, framework, contract: TEMPLATES[framework].remoteContract, exposes }
+}
+
+/** Expose keys without their "./" prefix. A remote always offers App. */
+function exposeNames(app: AppConfig | undefined): string[] {
+	const names = Object.keys(app?.exposes ?? {}).map(key => key.replace(/^[.][/]/, ''))
+	return names.length ? names : ['App']
 }
 
 export * from './types.js'

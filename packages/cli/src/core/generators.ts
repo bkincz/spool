@@ -345,5 +345,5 @@ function indexHtml(appName: string, framework: Framework): string {
 }
 
 function remoteTypings(refs: RemoteRef[]): string {
-	return refs.map(ref => TEMPLATES[ref.framework].remoteTyping(ref.name)).join('')
+	return refs.map(ref => TEMPLATES[ref.framework].remoteTyping(ref)).join('')
 }
