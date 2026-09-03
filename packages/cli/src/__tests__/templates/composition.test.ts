@@ -3,7 +3,7 @@
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
 import { transform } from 'esbuild'
-import { shellHostFiles } from '../../core/templates/shell.js'
+import { federationFiles } from '../../core/templates/composition.js'
 import { host, remote, makeManifest } from '../helpers.js'
 
 /*
@@ -16,7 +16,7 @@ function reactPrimitive(addons: string[] = ['shell']): string {
 	})
 	manifest.addons = addons
 
-	return shellHostFiles(manifest, manifest.apps.shell!)['src/shell/remote.tsx']!
+	return federationFiles(manifest, manifest.apps.shell!)['src/federation/remote.tsx']!
 }
 
 function framework(name: 'svelte' | 'vue'): string {
@@ -25,9 +25,9 @@ function framework(name: 'svelte' | 'vue'): string {
 		browse: remote({ framework: name, path: 'apps/browse' }),
 	})
 	manifest.addons = ['shell']
-	const file = name === 'svelte' ? 'src/shell/Remote.svelte' : 'src/shell/Remote.vue'
+	const file = name === 'svelte' ? 'src/federation/Remote.svelte' : 'src/federation/Remote.vue'
 
-	return shellHostFiles(manifest, manifest.apps.shell!)[file]!
+	return federationFiles(manifest, manifest.apps.shell!)[file]!
 }
 
 /*

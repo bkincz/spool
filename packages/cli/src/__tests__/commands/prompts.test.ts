@@ -167,7 +167,7 @@ describe('create (interactive)', () => {
 		expect(readFileSync(join(dir, 'apps/shell/src/main.tsx'), 'utf8')).toContain('initSentry()')
 		expect(existsSync(join(dir, 'apps/shell/src/sentry.ts'))).toBe(true)
 		expect(readFileSync(join(dir, 'apps/shell/src/app/app.tsx'), 'utf8')).toContain('<Remote')
-		expect(existsSync(join(dir, 'apps/shell/src/shell/remotes.ts'))).toBe(true)
+		expect(existsSync(join(dir, 'apps/shell/src/federation/remotes.ts'))).toBe(true)
 		// A flag-driven run never reaches the interactive DSN step.
 		expect(existsSync(join(dir, 'apps/shell/.env'))).toBe(false)
 	})

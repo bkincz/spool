@@ -4,7 +4,7 @@
  ***************************************************************************************************/
 import { pascalCase } from '../../util/names.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_IMPORT } from './bridges.js'
-import { shellHostApp } from './shell.js'
+import { compositionHostApp } from './composition.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './types.js'
 
 export const reactTemplate: FrameworkTemplate = {
@@ -76,7 +76,9 @@ function appStyles(): string {
 }
 
 function hostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
-	return extras.shell ? shellHostApp('react', appName, refs) : hostApp(appName, refs, extras)
+	return extras.composed
+		? compositionHostApp('react', appName, refs)
+		: hostApp(appName, refs, extras)
 }
 
 function hostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {

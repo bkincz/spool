@@ -3,30 +3,27 @@ import { SENTRY_SDK } from '../versions.js'
 import type { FileMap } from '../filemap.js'
 import { remoteRefs, type RemoteRef } from './index.js'
 
-export const SHELL_REMOTES_FILE = 'src/shell/remotes.ts'
+export const FEDERATION_REMOTES_FILE = 'src/federation/remotes.ts'
 export const NAV_PATH_TESTID = 'shell-path'
 
 /** Substrate every app gets: the shared history plus a framework binding to
  * read it reactively. Coordination rides on window.history so independent
  * copies stay in sync with no shared singleton. */
-export function shellRuntimeFiles(app: AppConfig): FileMap {
+export function navigationFiles(app: AppConfig): FileMap {
 	const [bindingFile, binding] = locationBinding(app.framework)
 	return {
-		'src/shell/history.ts': historyCore(),
-		[`src/shell/${bindingFile}`]: binding,
-		'src/shell/index.ts': shellBarrel(app),
+		'src/navigation/history.ts': historyCore(),
+		[`src/navigation/${bindingFile}`]: binding,
+		'src/navigation/index.ts': navigationBarrel(app),
 	}
 }
 
-function shellBarrel(app: AppConfig): string {
-	const lines = ['export * from "./history";', bindingExport(app.framework)]
-	if (app.type === 'host') {
-		lines.push(
-			remoteExport(app.framework),
-			'export { remotes, type RemoteEntry } from "./remotes";'
-		)
-	}
-	return `${lines.join('\n')}\n`
+function navigationBarrel(app: AppConfig): string {
+	return `export * from "./history";\n${bindingExport(app.framework)}\n`
+}
+
+function federationBarrel(app: AppConfig): string {
+	return `${remoteExport(app.framework)}\nexport { remotes, type RemoteEntry } from "./remotes";\n`
 }
 
 function bindingExport(framework: Framework): string {
@@ -43,13 +40,14 @@ function remoteExport(framework: Framework): string {
 
 /** Host-only files: the remote registry (regenerated when remotes change) and
  * the <Remote> mounting primitive that hides the component/mount contract. */
-export function shellHostFiles(m: Manifest, host: AppConfig): FileMap {
+export function federationFiles(m: Manifest, host: AppConfig): FileMap {
 	const refs = remoteRefs(m, host)
 	const sentry = m.addons.includes('sentry')
 	const [primitiveFile, primitive] = remotePrimitive(host.framework, refs, sentry)
 	return {
-		[SHELL_REMOTES_FILE]: remotesRegistry(refs),
-		[`src/shell/${primitiveFile}`]: primitive,
+		[FEDERATION_REMOTES_FILE]: remotesRegistry(refs),
+		[`src/federation/${primitiveFile}`]: primitive,
+		'src/federation/index.ts': federationBarrel(host),
 	}
 }
 
@@ -70,14 +68,20 @@ ${entries.join('\n')}
 `
 }
 
-export function shellNotes(composed: boolean): string[] {
+export function navigationNotes(): string[] {
+	return [
+		'navigation: import { useLocation, navigate } from "@/navigation" to read the url and change it. Every bundle on the page sees the same one.',
+	]
+}
+
+export function federationNotes(composed: boolean): string[] {
 	if (composed) {
 		return [
-			'shell: the host starts as a routed shell in src/app. Mount any remote with <Remote name="..." />, read the url with useLocation(), and navigate() to change it.',
+			'federation: the host starts as a routed shell in src/app. Mount any remote with <Remote name="..." /> from "@/federation".',
 		]
 	}
 	return [
-		'shell: import { Remote, useLocation, navigate } from "@/shell" to mount remotes by name and drive the shared history. Compose them into your host however you like.',
+		'federation: import { Remote } from "@/federation" to mount a remote by name. Compose them into your host however you like.',
 	]
 }
 
@@ -464,11 +468,15 @@ function defaultRoutes(refs: RemoteRef[]): Record<string, string> {
 	return routes
 }
 
-export function shellHostApp(framework: Framework, appName: string, refs: RemoteRef[]): string {
+export function compositionHostApp(
+	framework: Framework,
+	appName: string,
+	refs: RemoteRef[]
+): string {
 	const routes = defaultRoutes(refs)
-	if (framework === 'svelte') return svelteShellHost(appName, routes)
-	if (framework === 'vue') return vueShellHost(appName, routes)
-	return reactShellHost(appName, routes)
+	if (framework === 'svelte') return svelteCompositionHost(appName, routes)
+	if (framework === 'vue') return vueCompositionHost(appName, routes)
+	return reactCompositionHost(appName, routes)
 }
 
 function routesLiteral(routes: Record<string, string>): string {
@@ -476,8 +484,9 @@ function routesLiteral(routes: Record<string, string>): string {
 	return `{ ${entries.join(', ')} }`
 }
 
-function reactShellHost(appName: string, routes: Record<string, string>): string {
-	return `import { Remote, useLocation, navigate, matchRoute } from "@/shell";
+function reactCompositionHost(appName: string, routes: Record<string, string>): string {
+	return `import { useLocation, navigate, matchRoute } from "@/navigation";
+import { Remote } from "@/federation";
 
 // Map url prefixes to remote names. Edit freely. For a region that stays put,
 // render <Remote name="..." /> outside the routed <main>.
@@ -508,9 +517,10 @@ export default function App() {
 `
 }
 
-function svelteShellHost(appName: string, routes: Record<string, string>): string {
+function svelteCompositionHost(appName: string, routes: Record<string, string>): string {
 	return `<script lang="ts">
-  import { Remote, location, navigate, matchRoute } from "@/shell";
+  import { location, navigate, matchRoute } from "@/navigation";
+  import { Remote } from "@/federation";
 
   const routes: Record<string, string> = ${routesLiteral(routes)};
   $: active = matchRoute($location.pathname, routes);
@@ -535,10 +545,11 @@ function svelteShellHost(appName: string, routes: Record<string, string>): strin
 `
 }
 
-function vueShellHost(appName: string, routes: Record<string, string>): string {
+function vueCompositionHost(appName: string, routes: Record<string, string>): string {
 	return `<script setup lang="ts">
 import { computed } from "vue";
-import { Remote, useLocation, navigate, matchRoute } from "@/shell";
+import { useLocation, navigate, matchRoute } from "@/navigation";
+import { Remote } from "@/federation";
 
 const routes: Record<string, string> = ${routesLiteral(routes)};
 const location = useLocation();

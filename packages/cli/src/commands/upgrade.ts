@@ -115,10 +115,23 @@ async function loadForUpgrade(writer: ChangeWriter): Promise<Workspace> {
 	let raw: unknown
 	await writer.editJson(root, MANIFEST_FILE, 'workspace', manifest => {
 		raw = manifest
-		if (manifest.bundler !== 'rspack') return []
+		const changes: string[] = []
 
-		delete manifest.bundler
-		return ['removed unsupported bundler "rspack"']
+		if (manifest.bundler === 'rspack') {
+			delete manifest.bundler
+			changes.push('removed unsupported bundler "rspack"')
+		}
+
+		const addons = manifest.addons
+		if (Array.isArray(addons) && addons.includes('shell')) {
+			const kept = addons.filter(name => name !== 'shell')
+			if (!kept.includes('navigation')) kept.push('navigation')
+			if (!kept.includes('federation')) kept.push('federation')
+			manifest.addons = kept
+			changes.push('split addon "shell" into "navigation" and "federation"')
+		}
+
+		return changes
 	})
 
 	return { root, manifestPath: join(root, MANIFEST_FILE), manifest: parseManifest(raw) }

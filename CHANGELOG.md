@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.7.0
+
+- The `shell` addon is now two: `navigation` and `federation`. It wrote both the
+  url primitive and the remote-mounting primitive into one `src/shell` folder,
+  which said nothing about what was in it, and left remotes with a folder called
+  shell that held no shell at all.
+
+  `navigation` writes `src/navigation` in every app, with `navigate`,
+  `useLocation` and `matchRoute`. `federation` writes `src/federation` in hosts,
+  with `<Remote>` and the remote registry. Import from `@/navigation` and
+  `@/federation`.
+
+  `spool upgrade` rewrites the manifest, and `--addons shell` still works.
+  Updating the imports in your own code is yours to do, and the old `src/shell`
+  is yours to delete once you have.
+
 ## 2.6.2
 
 - An unreachable remote no longer holds the whole page blank. Share scope was
