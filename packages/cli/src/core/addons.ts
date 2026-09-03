@@ -70,7 +70,7 @@ function navigationAddonFiles(m: Manifest): FileMap {
 function federationAddonFiles(m: Manifest): FileMap {
 	const files: FileMap = {}
 	for (const app of Object.values(m.apps)) {
-		if (app.type !== 'host') continue
+		if (app.type !== 'host' && !app.remotes.length) continue
 		for (const [rel, content] of Object.entries(federationFiles(m, app))) {
 			files[`${app.path}/${rel}`] = content
 		}
@@ -211,9 +211,9 @@ export const ADDONS: Record<
 		label: 'Federation',
 		hint: 'a <Remote> primitive and the remote registry, in src/federation',
 		unavailable: m =>
-			Object.values(m.apps).some(app => app.type === 'host')
+			Object.values(m.apps).some(app => app.type === 'host' || app.remotes.length)
 				? undefined
-				: 'Federation needs a host app to compose remotes into.',
+				: 'Federation needs an app that consumes remotes.',
 		present: (_root, m) => m.addons.includes('federation'),
 		apply: m => enableAddon(m, 'federation'),
 		files: federationAddonFiles,

@@ -143,9 +143,22 @@ describe('navigation and federation addons', () => {
 			browse: remote({ path: 'apps/browse', framework: 'svelte' }),
 		})
 
-	it('needs a host app', () => {
-		expect(ADDONS.federation.unavailable(makeManifest({ solo: remote() }))).toMatch(/host/)
+	it('needs something that consumes remotes', () => {
+		expect(ADDONS.federation.unavailable(makeManifest({ solo: remote() }))).toMatch(/consumes/)
 		expect(ADDONS.federation.unavailable(build())).toBeUndefined()
+	})
+
+	it('is available to a remote that consumes remotes', () => {
+		const m = makeManifest({
+			widgets: remote({ path: 'apps/widgets' }),
+			feature: remote({ path: 'apps/feature', port: 5175, remotes: ['widgets'] }),
+		})
+
+		expect(ADDONS.federation.unavailable(m)).toBeUndefined()
+		expect(ADDONS.federation.files(m)['apps/feature/src/federation/remotes.ts']).toContain(
+			'import("widgets/App")'
+		)
+		expect(ADDONS.federation.files(m)['apps/widgets/src/federation/remotes.ts']).toBeUndefined()
 	})
 
 	it('enables through the manifest without touching apps', () => {

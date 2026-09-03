@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.7.1
+
+- A remote can consume remotes. `remotes` was only read on hosts, so an app was
+  either a provider or a consumer and never both. That forced a feature app
+  wanting a widget another app owns to either duplicate it or drop it into a
+  shared package, which is the coupling the split was meant to avoid.
+
+  Give any app a `remotes` list and it gets a remotes map alongside its
+  `exposes`, plus `<Remote>`, the registry and `src/remotes.d.ts`. Module
+  federation was always fine with this; only spool's manifest model was not.
+
+  Hosts are unchanged, including a host with no remotes yet.
+
 ## 2.7.0
 
 - The `shell` addon is now two: `navigation` and `federation`. It wrote both the

@@ -94,7 +94,7 @@ function checkPaths(root: string, apps: Apps): Diagnostic[] {
 function checkRemotes(apps: Apps): Diagnostic[] {
 	const issues: Diagnostic[] = []
 	for (const [name, host] of Object.entries(apps)) {
-		if (host.type !== 'host') continue
+		if (!host.remotes.length) continue
 
 		for (const remote of host.remotes) {
 			const target = apps[remote]
@@ -408,9 +408,7 @@ function checkExposedFiles(root: string, apps: Apps): Diagnostic[] {
 
 function checkExposure(apps: Apps): Diagnostic[] {
 	const issues: Diagnostic[] = []
-	const consumed = new Set(
-		Object.values(apps).flatMap(app => (app.type === 'host' ? app.remotes : []))
-	)
+	const consumed = new Set(Object.values(apps).flatMap(app => app.remotes))
 	for (const [name, app] of Object.entries(apps)) {
 		if (app.type !== 'remote') continue
 
