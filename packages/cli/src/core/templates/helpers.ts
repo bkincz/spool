@@ -265,38 +265,37 @@ export function spoolApp(
     ...expandEnv(manifest.server ?? {}),
   };
 
-  if (app.type === "host") {
+  // An app can do both. A remote that consumes another remote gets exposes and
+  // a remotes map, which is how a feature app mounts a widget another one owns.
+  const federation: SpoolAppConfig["federation"] = {
+    name,
+    // Remotes are typed through src/remotes.d.ts, so the DTS archive is
+    // redundant and flaky to download. Every app writes a manifest because
+    // spool build compares what they all resolved.
+    manifest: true,
+    shared,
+    shareStrategy,
+    dts: false,
+  };
+
+  if ((app.remotes ?? []).length) {
     const remotes: Record<string, string> = {};
     for (const remote of app.remotes ?? []) {
       const target = manifest.apps[remote];
       if (!target) {
-        throw new Error('spool.vite: host "' + name + '" references unknown remote "' + remote + '"');
+        throw new Error('spool.vite: "' + name + '" references unknown remote "' + remote + '"');
       }
       remotes[remote] = remoteUrl(remote, target, command);
     }
-    // Remotes are typed through src/remotes.d.ts, so the DTS archive is
-    // redundant and flaky to download. Hosts still write a manifest because
-    // spool build compares what every app resolved.
-    return {
-      server,
-      federation: { name, remotes, shared, shareStrategy, manifest: true, dts: false },
-    };
+    federation.remotes = remotes;
   }
 
-  return {
-    server,
-    federation: {
-      name,
-      filename: "remoteEntry.js",
-      // Dev serves mf-manifest.json on its own. Builds only write it with this
-      // flag, and that is the file a host loads.
-      manifest: true,
-      exposes: app.exposes ?? {},
-      shared,
-      shareStrategy,
-      dts: false,
-    },
-  };
+  if (app.type === "remote") {
+    federation.filename = "remoteEntry.js";
+    federation.exposes = app.exposes ?? {};
+  }
+
+  return { server, federation };
 }
 `
 }

@@ -95,7 +95,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | `apps.<name>.urls`       | Optional. Per-environment manifests, e.g. `{ "staging": "https://..." }`. `--env` selects one |
 | `apps.<name>.deploy`     | Optional. Shell command `spool deploy` runs in the app folder     |
 | `server`                 | Optional. Dev server settings every app gets: `proxy`, `headers`, `host`, `cors` |
-| `apps.<name>.remotes`    | Remotes a host consumes                                           |
+| `apps.<name>.remotes`    | Remotes this app mounts. A remote can consume remotes too         |
 | `apps.<name>.exposes`    | Modules a remote exposes                                          |
 
 Settings every app needs from the dev server go in `server`, so you never edit a generated `vite.config.ts`:

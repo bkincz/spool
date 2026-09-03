@@ -153,6 +153,30 @@ describe('generated spool.vite.ts', () => {
 		expect(app.federation.manifest).toBe(true)
 	})
 
+	/** A feature app can mount a widget another app owns without becoming a host. */
+	it('gives a remote that consumes remotes both exposes and a remotes map', () => {
+		const consumer = freshDir('spool-helper-consumer-')
+		plantDeclaredDeps(consumer, ['react', 'react-dom'])
+		writeFileSync(
+			join(consumer, 'spool.json'),
+			JSON.stringify(
+				makeManifest({
+					shell: host({ remotes: ['dashboard'] }),
+					dashboard: remote({ remotes: ['billing'] }),
+					billing: remote({ path: 'apps/billing', port: 5175 }),
+				})
+			)
+		)
+
+		const app = helper.spoolApp('dashboard', consumer)
+
+		expect(app.federation.filename).toBe('remoteEntry.js')
+		expect(app.federation.exposes).toEqual({ './App': './src/app/app.tsx' })
+		expect(app.federation.remotes?.billing).toBe('http://localhost:5175/mf-manifest.json')
+
+		removeDir(consumer)
+	})
+
 	it('names an unknown app in its error', () => {
 		expect(() => helper.spoolApp('ghost', dir)).toThrow('no app named "ghost"')
 	})

@@ -78,7 +78,7 @@ export const AppSchema = z
 		urls: z.record(z.string(), z.url()).optional(),
 		/** Shell command `spool deploy` runs in the app folder. */
 		deploy: z.string().optional(),
-		/** Remotes a host consumes (names referencing other apps). */
+		/** Remotes this app mounts. A remote can consume remotes too. */
 		remotes: z.array(z.string()).default([]),
 		/** Modules a remote exposes: exposeKey -> source path. */
 		exposes: z.record(z.string(), z.string()).default({}),

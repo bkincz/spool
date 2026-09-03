@@ -179,7 +179,7 @@ export function appFiles(
 	extras: TemplateExtras = NO_EXTRAS
 ): FileMap {
 	const isHost = app.type === 'host'
-	const refs = isHost ? remoteRefs(m, app) : []
+	const refs = app.remotes.length ? remoteRefs(m, app) : []
 	const files: FileMap = {
 		'package.json': appPackageJson(m, appName, app, extras),
 		'tsconfig.json': appTsConfig(app.framework),
@@ -221,7 +221,7 @@ export function appConfigFiles(appName: string, app: AppConfig, sentry = false):
  */
 export function hostWiringFiles(m: Manifest, host: AppConfig): FileMap {
 	const files: FileMap = {}
-	if (host.type !== 'host') return files
+	if (host.type !== 'host' && !host.remotes.length) return files
 	if (host.remotes.length) files['src/remotes.d.ts'] = remoteTypings(remoteRefs(m, host))
 
 	// The registry and the <Remote> primitive both depend on the host's remotes
