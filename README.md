@@ -87,7 +87,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | Field                    | Description                                                       |
 | ------------------------ | ----------------------------------------------------------------- |
 | `shared`                 | Deps shared as singletons across apps                             |
-| `shareStrategy`          | Optional. How shared versions resolve: `loaded-first` (default) or `version-first` |
+| `shareStrategy`          | Optional. `loaded-first` (default) or `version-first`             |
 | `apps.<name>.type`       | `host` consumes remotes, `remote` exposes modules                 |
 | `apps.<name>.framework`  | `react` (default), `svelte`, or `vue`                             |
 | `apps.<name>.port`       | Dev server port                                                   |
@@ -97,7 +97,6 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | `server`                 | Optional. Dev server settings every app gets: `proxy`, `headers`, `host`, `cors` |
 | `apps.<name>.remotes`    | Remotes a host consumes                                           |
 | `apps.<name>.exposes`    | Modules a remote exposes                                          |
-| `shareStrategy`          | Optional. `loaded-first` (default) or `version-first`             |
 
 Settings every app needs from the dev server go in `server`, so you never edit a generated `vite.config.ts`:
 
@@ -115,22 +114,11 @@ Typos fail loudly instead of being silently dropped, and `spool doctor` catches 
 
 ## Checks and upgrades
 
-- `spool doctor` checks ports, wiring, exposed files, and shared dep versions
-  across every workspace member. `--fix` repairs what it safely can, and
-  `--dry-run` shows the changes first.
-- `spool upgrade` never overwrites your edits. Spool hashes what it writes into
-  `.spool/generated.json`, so a later run can tell its own output from yours.
-  Edited files are offered, not replaced. `--force` skips the asking and takes
-  paths to limit it.
-- Versions only ever move forward, onto the highest range already in the
-  workspace, so a workspace ahead of spool stays ahead.
-- `spool build` runs a tier at once and then compares what each app resolved
-  for every shared dep, failing only when one app would load a version another
-  cannot accept. `--concurrency <n>` caps the parallelism.
-- `spool ci` writes a check workflow that runs whichever of `doctor`,
-  `type-check`, `lint`, `test`, and `build` your root package.json has, plus a
-  path-filtered deploy workflow per app with a `deploy` command. Both trigger
-  on `branches: [main]`.
+- `spool doctor` checks ports, wiring, exposed files, and shared dep versions across every workspace member. `--fix` repairs what it safely can, and `--dry-run` shows the changes first.
+- `spool upgrade` never overwrites your edits. Spool hashes what it writes into `.spool/generated.json`, so a later run can tell its own output from yours. Edited files are offered, not replaced. `--force` skips the asking and takes paths to limit it.
+- Versions only ever move forward, onto the highest range already in the workspace, so a workspace ahead of spool stays ahead.
+- `spool build` runs a tier at once and then compares what each app resolved for every shared dep, failing only when one app would load a version another cannot accept. `--concurrency <n>` caps the parallelism.
+- `spool ci` writes a check workflow that runs whichever of `doctor`, `type-check`, `lint`, `test`, and `build` your root package.json has, plus a path-filtered deploy workflow per app with a `deploy` command. Both trigger on `branches: [main]`.
 
 ## The app list
 
