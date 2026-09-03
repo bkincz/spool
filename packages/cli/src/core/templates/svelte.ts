@@ -10,7 +10,7 @@ import {
 	STATE_COUNT_TEXT,
 	STATE_STORE_IMPORT,
 } from './bridges.js'
-import { shellHostApp } from './shell.js'
+import { compositionHostApp } from './composition.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './types.js'
 
 export const svelteTemplate: FrameworkTemplate = {
@@ -105,8 +105,8 @@ function svelteRemoteApp(appName: string, extras: TemplateExtras): string {
 }
 
 function svelteHostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
-	return extras.shell
-		? shellHostApp('svelte', appName, refs)
+	return extras.composed
+		? compositionHostApp('svelte', appName, refs)
 		: svelteHostApp(appName, refs, extras)
 }
 

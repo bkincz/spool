@@ -10,7 +10,7 @@ import {
 	STATE_COUNT_TEXT,
 	STATE_STORE_IMPORT,
 } from './bridges.js'
-import { shellHostApp } from './shell.js'
+import { compositionHostApp } from './composition.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './types.js'
 
 export const vueTemplate: FrameworkTemplate = {
@@ -116,7 +116,9 @@ const increment = () =>
 }
 
 function vueHostAppFile(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {
-	return extras.shell ? shellHostApp('vue', appName, refs) : vueHostApp(appName, refs, extras)
+	return extras.composed
+		? compositionHostApp('vue', appName, refs)
+		: vueHostApp(appName, refs, extras)
 }
 
 function vueHostApp(appName: string, refs: RemoteRef[], extras: TemplateExtras): string {

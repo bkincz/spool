@@ -80,7 +80,7 @@ describe('add', () => {
 		process.chdir(dir)
 
 		await add('checkout', { install: false })
-		expect(read('apps/shell/src/shell/remotes.ts')).toContain('checkout/App')
+		expect(read('apps/shell/src/federation/remotes.ts')).toContain('checkout/App')
 	})
 
 	it('prints a mount hint for svelte and vue hosts, for both remote contracts', async () => {

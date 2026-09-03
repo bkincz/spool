@@ -23,7 +23,7 @@ import {
 } from './templates/index.js'
 import { helperFiles } from './templates/helpers.js'
 import { sentryVitePlugin } from './templates/sentry.js'
-import { shellHostFiles } from './templates/shell.js'
+import { federationFiles } from './templates/composition.js'
 
 /*
  *   TYPES
@@ -227,7 +227,7 @@ export function hostWiringFiles(m: Manifest, host: AppConfig): FileMap {
 	// The registry and the <Remote> primitive both depend on the host's remotes
 	// (the primitive imports the react bridge only when one needs it), so both
 	// are regenerated together whenever the remotes change.
-	if (m.addons.includes('shell')) Object.assign(files, shellHostFiles(m, host))
+	if (m.addons.includes('federation')) Object.assign(files, federationFiles(m, host))
 
 	// Only the alias map names the remotes; vitest.config.ts stays the user’s.
 	if (m.addons.includes('test')) {

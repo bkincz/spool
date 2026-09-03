@@ -13,7 +13,12 @@ import { ladleFiles } from './templates/ladle.js'
 import { playwrightFiles } from './templates/playwright.js'
 import { stateFiles } from './templates/state.js'
 import { turboConfig, turboNotes } from './templates/turbo.js'
-import { shellRuntimeFiles, shellHostFiles, shellNotes } from './templates/shell.js'
+import {
+	navigationFiles,
+	federationFiles,
+	navigationNotes,
+	federationNotes,
+} from './templates/composition.js'
 import {
 	ALIAS_FILE,
 	eslintConfig,
@@ -52,16 +57,22 @@ function enableAddon(m: Manifest, name: string): void {
 	if (!m.addons.includes(name)) m.addons.push(name)
 }
 
-function shellFiles(m: Manifest): FileMap {
+function navigationAddonFiles(m: Manifest): FileMap {
 	const files: FileMap = {}
 	for (const app of Object.values(m.apps)) {
-		for (const [rel, content] of Object.entries(shellRuntimeFiles(app))) {
+		for (const [rel, content] of Object.entries(navigationFiles(app))) {
 			files[`${app.path}/${rel}`] = content
 		}
-		if (app.type === 'host') {
-			for (const [rel, content] of Object.entries(shellHostFiles(m, app))) {
-				files[`${app.path}/${rel}`] = content
-			}
+	}
+	return files
+}
+
+function federationAddonFiles(m: Manifest): FileMap {
+	const files: FileMap = {}
+	for (const app of Object.values(m.apps)) {
+		if (app.type !== 'host') continue
+		for (const [rel, content] of Object.entries(federationFiles(m, app))) {
+			files[`${app.path}/${rel}`] = content
 		}
 	}
 	return files
@@ -83,7 +94,15 @@ function testFiles(m: Manifest): FileMap {
 }
 
 export const ADDONS: Record<
-	'ladle' | 'playwright' | 'lint' | 'test' | 'turbo' | 'state' | 'sentry' | 'shell',
+	| 'ladle'
+	| 'playwright'
+	| 'lint'
+	| 'test'
+	| 'turbo'
+	| 'state'
+	| 'sentry'
+	| 'navigation'
+	| 'federation',
 	Addon
 > = {
 	ladle: {
@@ -178,18 +197,28 @@ export const ADDONS: Record<
 		allowBuilds: ['@sentry/cli'],
 		notes: (_m, composed) => sentryNotes(composed),
 	},
-	shell: {
-		label: 'Shell',
-		hint: 'a shared history plus a <Remote> primitive to compose remotes into views',
+	navigation: {
+		label: 'Navigation',
+		hint: 'one url every bundle on the page agrees on, in src/navigation',
+		unavailable: () => undefined,
+		present: (_root, m) => m.addons.includes('navigation'),
+		apply: m => enableAddon(m, 'navigation'),
+		files: navigationAddonFiles,
+		allowBuilds: [],
+		notes: () => navigationNotes(),
+	},
+	federation: {
+		label: 'Federation',
+		hint: 'a <Remote> primitive and the remote registry, in src/federation',
 		unavailable: m =>
 			Object.values(m.apps).some(app => app.type === 'host')
 				? undefined
-				: 'Shell needs a host app to compose remotes into.',
-		present: (_root, m) => m.addons.includes('shell'),
-		apply: m => enableAddon(m, 'shell'),
-		files: shellFiles,
+				: 'Federation needs a host app to compose remotes into.',
+		present: (_root, m) => m.addons.includes('federation'),
+		apply: m => enableAddon(m, 'federation'),
+		files: federationAddonFiles,
 		allowBuilds: [],
-		notes: (_m, composed) => shellNotes(composed),
+		notes: (_m, composed) => federationNotes(composed),
 	},
 }
 
@@ -202,7 +231,7 @@ export function templateExtras(addons: AddonName[]): TemplateExtras {
 		stateExample: addons.includes('state'),
 		uiButton: addons.includes('state') && addons.includes('ladle'),
 		sentry: addons.includes('sentry'),
-		shell: addons.includes('shell'),
+		composed: addons.includes('federation'),
 	}
 }
 
@@ -214,6 +243,10 @@ export function parseAddonList(value: string, m: Manifest): AddonName[] {
 	const names: AddonName[] = []
 	for (const entry of splitList(value)) {
 		if (entry === 'none') continue
+		if (entry === 'shell') {
+			names.push('navigation', 'federation')
+			continue
+		}
 		if (!isAddonName(entry)) {
 			fail(`Unknown addon "${entry}". Use ${ADDON_NAMES.join(' or ')}, or "none".`)
 		}

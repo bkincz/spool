@@ -20,14 +20,14 @@ export interface TemplateExtras {
 	stateExample: boolean
 	uiButton: boolean
 	sentry: boolean
-	shell: boolean
+	composed: boolean
 }
 
 export const NO_EXTRAS: TemplateExtras = {
 	stateExample: false,
 	uiButton: false,
 	sentry: false,
-	shell: false,
+	composed: false,
 }
 
 export interface FrameworkTemplate {

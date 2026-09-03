@@ -48,7 +48,7 @@ Open http://localhost:5173 to see the host with its remotes mounted. Prefer prom
 | `--host <name>`     | Host app, as `name` or `name:framework`                     |
 | `--remotes <list>`  | Comma-separated remotes, each as `name` or `name:framework` |
 | `--framework <fw>`  | Default framework: `react`, `svelte`, or `vue`              |
-| `--addons <list>`   | Extras: `ladle`, `playwright`, `lint`, `test`, `turbo`, `state`, `sentry`, `shell`, or `none` |
+| `--addons <list>`   | Extras: `ladle`, `playwright`, `lint`, `test`, `turbo`, `state`, `sentry`, `navigation`, `federation`, or `none` |
 | `--pm <manager>`    | `pnpm`, `npm`, or `yarn`                                    |
 | `--here`            | Scaffold into the current folder                            |
 | `--no-install`      | Skip the install step                                       |
@@ -151,7 +151,7 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 
 ## Extras
 
-`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, lint, test, turbo, state, sentry, shell"`. Missed one? `spool addon` adds it to an existing workspace later.
+`spool create` can also set up the tooling most workspaces end up wanting. Pick at the prompt, or pass `--addons "ladle, playwright, lint, test, turbo, state, sentry, navigation, federation"`. Missed one? `spool addon` adds it to an existing workspace later.
 
 - **Ladle**: a react design-system package in `packages/ui` with a component workshop. `spool dev` starts it alongside your apps, or open it on its own with `pnpm --filter ui ladle`.
 - **Playwright**: e2e tests in `packages/e2e` that boot the workspace and check every remote mounts. Run `npx playwright install` once, then `pnpm --filter e2e test`.
@@ -160,14 +160,16 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **Turborepo**: a `turbo.json` that puts `spool.json`, the runtime helper, and the `SPOOL_ENV` / `SPOOL_REMOTE_*` variables into the cache key, so a wiring change never gets a stale hit. `spool dev` and `spool build` are unchanged; turbo covers the tasks spool does not run.
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a store module in every app so they read and write one state instance per page. The store validates its shape on every change with a plain predicate, swap in a zod or valibot schema if you want one. Bump its `version` and add a `migrate` when the shape changes.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry, tagged by app name. Set `VITE_SENTRY_DSN` (create asks once and writes each app's `.env`). For readable production stack traces, set `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, and `spool build` uploads source maps.
-- **Shell**: a shared history (`navigate`, `useLocation`) plus a `<Remote name="..." />` primitive that mounts any remote by name across frameworks, re-exported from `@/shell`. Back and forward work across remotes, and deep links resolve on load.
+- **Navigation**: one url every bundle on the page agrees on, in `src/navigation`. `navigate` and `useLocation` ride on `window.history`, so back and forward work across remotes and deep links resolve on load.
+- **Federation**: a `<Remote name="..." />` primitive and the remote registry, in `src/federation`. Mounts any remote by name, across frameworks.
 
 `<Remote>` isolates failures. A remote that is mid-deploy or ships a broken chunk renders a placeholder with a retry instead of taking the host down. Pass `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
 
 Composing remotes is your own code, one region or many, persistent or routed:
 
 ```tsx
-import { Remote, useLocation, navigate, matchRoute } from '@/shell'
+import { useLocation, navigate, matchRoute } from '@/navigation'
+import { Remote } from '@/federation'
 
 const routes = { '/': 'browse', '/search': 'search' }
 const active = matchRoute(useLocation().pathname, routes)
