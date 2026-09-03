@@ -9,7 +9,7 @@ import {
 	sentryVitePlugin,
 	sentryNotes,
 } from '../../core/templates/sentry.js'
-import { remotesRegistry, federationNotes } from '../../core/templates/composition.js'
+import { exposeKey, remotesRegistry, federationNotes } from '../../core/templates/composition.js'
 import { NO_EXTRAS } from '../../core/templates/index.js'
 import { appFiles, hostWiringFiles } from '../../core/generators.js'
 import { validateDsn } from '../../commands/create.js'
@@ -326,11 +326,34 @@ describe('starter shell per framework', () => {
 describe('remotesRegistry', () => {
 	it('records each remote by name with its contract and loader', () => {
 		const registry = remotesRegistry([
-			{ name: 'a', framework: 'react', contract: 'component' },
-			{ name: 'b', framework: 'vue', contract: 'mount' },
+			{ name: 'a', framework: 'react', contract: 'component', exposes: ['App'] },
+			{ name: 'b', framework: 'vue', contract: 'mount', exposes: ['App'] },
 		])
 		expect(registry).toContain('"a": { contract: "component"')
 		expect(registry).toContain('"b": { contract: "mount"')
 		expect(registry).toContain('import("a/App")')
+	})
+
+	it('gives every named expose its own row', () => {
+		const registry = remotesRegistry([
+			{ name: 'a', framework: 'react', contract: 'component', exposes: ['App', 'Panel'] },
+		])
+		expect(registry).toContain('"a/Panel": { contract: "component"')
+		expect(registry).toContain('import("a/Panel")')
+	})
+
+	it('keeps App keyed by the bare remote name', () => {
+		const registry = remotesRegistry([
+			{ name: 'a', framework: 'react', contract: 'component', exposes: ['App', 'Panel'] },
+		])
+		expect(registry).toContain('"a": { contract')
+		expect(registry).not.toContain('"a/App":')
+	})
+})
+
+describe('exposeKey', () => {
+	it('keeps App bare and namespaces the rest', () => {
+		expect(exposeKey('a', 'App')).toBe('a')
+		expect(exposeKey('a', 'Panel')).toBe('a/Panel')
 	})
 })

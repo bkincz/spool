@@ -12,8 +12,13 @@ export const STATE_STORE_IMPORT = '@/state/counter'
 export const STATE_COUNT_TESTID = 'shell-count'
 export const STATE_COUNT_TEXT = 'Shared count:'
 
-export function mountContractTyping(name: string): string {
-	return `declare module "${name}/App" {\n  const mount: (target: HTMLElement) => () => void;\n  export default mount;\n}\n`
+export function mountContractTyping(ref: RemoteRef): string {
+	return ref.exposes
+		.map(
+			expose =>
+				`declare module "${ref.name}/${expose}" {\n  const mount: (target: HTMLElement) => () => void;\n  export default mount;\n}\n`
+		)
+		.join('')
 }
 
 export function reactBridgeFiles(refs: RemoteRef[]): Record<string, string> {

@@ -51,11 +51,17 @@ export function federationFiles(m: Manifest, host: AppConfig): FileMap {
 	}
 }
 
+export function exposeKey(name: string, expose: string): string {
+	return expose === 'App' ? name : `${name}/${expose}`
+}
+
 /** The name-keyed loader table, regenerated whenever a host's remotes change. */
 export function remotesRegistry(refs: RemoteRef[]): string {
-	const entries = refs.map(
-		r =>
-			`  ${JSON.stringify(r.name)}: { contract: "${r.contract}", load: () => import("${r.name}/App") },`
+	const entries = refs.flatMap(r =>
+		r.exposes.map(
+			expose =>
+				`  ${JSON.stringify(exposeKey(r.name, expose))}: { contract: "${r.contract}", load: () => import("${r.name}/${expose}") },`
+		)
 	)
 	return `export interface RemoteEntry {
   contract: "component" | "mount";

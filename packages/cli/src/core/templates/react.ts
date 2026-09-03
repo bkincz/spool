@@ -14,8 +14,13 @@ export const reactTemplate: FrameworkTemplate = {
 	viteEnv: `/// <reference types="vite/client" />\n`,
 	compilerOptions: { jsx: 'react-jsx' },
 	vitePlugin: { importLine: 'import react from "@vitejs/plugin-react";', call: 'react()' },
-	remoteTyping: name =>
-		`declare module "${name}/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`,
+	remoteTyping: ref =>
+		ref.exposes
+			.map(
+				expose =>
+					`declare module "${ref.name}/${expose}" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`
+			)
+			.join(''),
 	sourceFiles: (appName, isHost, refs, extras) => ({
 		'src/main.tsx': mainTsx(extras),
 		'src/app/app.tsx': isHost ? hostAppFile(appName, refs, extras) : remoteApp(appName, extras),

@@ -260,6 +260,32 @@ describe('hostWiringFiles', () => {
 		const m = makeManifest({ shell: host() })
 		expect(hostWiringFiles(m, m.apps.shell!)).toEqual({})
 	})
+
+	it('declares every expose a remote offers, not just App', () => {
+		const m = makeManifest({
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote({
+				exposes: {
+					'./App': './src/app/app.tsx',
+					'./Panel': './src/widgets/panel.tsx',
+				},
+			}),
+		})
+		const typings = hostWiringFiles(m, m.apps.shell!)['src/remotes.d.ts']!
+		expect(typings).toContain('declare module "dashboard/App"')
+		expect(typings).toContain('declare module "dashboard/Panel"')
+	})
+
+	it('keeps the registry keyed by App for a remote that only exposes App', () => {
+		const m = makeManifest({
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+		const typings = hostWiringFiles(m, m.apps.shell!)['src/remotes.d.ts']!
+		expect(typings).toBe(
+			'declare module "dashboard/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n'
+		)
+	})
 })
 
 /*
