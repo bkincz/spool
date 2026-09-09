@@ -107,7 +107,7 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 		await writeFiles(join(ws.root, host.app.path), await formatFiles(bridge, ws.root), {
 			provenance,
 		})
-		
+
 		// A foreign-framework remote makes the host depend on that framework's
 		// bridge runtime; add the missing deps without touching existing ones.
 		await syncHostDeps(ws.root, manifest, host.app)

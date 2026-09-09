@@ -195,7 +195,7 @@ export function appDependencies(
 		dependencies[SENTRY_SDK[app.framework]] = SENTRY_VERSION
 		devDependencies['@sentry/vite-plugin'] = SENTRY_VITE_PLUGIN_VERSION
 	}
-	
+
 	if (m.addons.includes('test')) {
 		Object.assign(devDependencies, TEST_DEPS, TEST_FRAMEWORK_DEPS[app.framework])
 	}

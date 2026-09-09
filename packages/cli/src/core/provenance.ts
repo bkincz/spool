@@ -53,7 +53,7 @@ export class Provenance {
 		private readonly root: string,
 		private readonly files: Record<string, string>,
 		private readonly owned: Set<string>
-	) { }
+	) {}
 
 	/** A record spool cannot read is treated as absent, never as a conflict. */
 	static load(root: string): Provenance {
@@ -153,7 +153,7 @@ export class Provenance {
 		}
 		if (from in this.files) {
 			this.files[to] = this.files[from]!
-			
+
 			delete this.files[from]
 			this.dirty = true
 		}

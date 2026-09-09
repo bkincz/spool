@@ -612,7 +612,7 @@ async function buildTier(
 	const failures: BuildFailure[] = []
 
 	const worker = async (): Promise<void> => {
-		for (; ;) {
+		for (;;) {
 			const next = queue.shift()
 			if (!next) return
 
@@ -756,7 +756,7 @@ export async function deployAll(
 	const apps = selectApps(ws, only)
 	const ordered = [...remotesOf(apps), ...hostsOf(apps)]
 	const deployable = ordered.filter(a => a.app.deploy)
-	
+
 	// Deploy commands are the user's own; SPOOL_ENV lets them branch per env.
 	const spawnEnv = env === undefined ? {} : { env: { ...process.env, SPOOL_ENV: env } }
 

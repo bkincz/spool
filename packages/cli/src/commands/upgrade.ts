@@ -149,7 +149,7 @@ async function loadForUpgrade(
 		const addons = manifest.addons
 		if (Array.isArray(addons) && addons.includes('shell')) {
 			const kept = addons.filter(name => name !== 'shell')
-			
+
 			if (!kept.includes('navigation')) kept.push('navigation')
 			if (!kept.includes('federation')) kept.push('federation')
 

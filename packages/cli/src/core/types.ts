@@ -151,7 +151,7 @@ export async function emitRemoteTypes(
 			built.push(name)
 		} catch (cause) {
 			const output = cause instanceof Error ? cause.message : String(cause)
-			
+
 			// tsc still emits declarations past type errors, so they are usable when present.
 			if (declarationsWritten(root, name, app)) {
 				built.push(name)

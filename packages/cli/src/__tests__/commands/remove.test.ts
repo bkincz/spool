@@ -29,7 +29,7 @@ let cwd: string
 beforeEach(async () => {
 	dir = freshDir('spool-remove-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => { })
+	vi.spyOn(console, 'log').mockImplementation(() => {})
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',
@@ -149,7 +149,7 @@ describe('remove: a remote consuming another remote', () => {
 	beforeEach(async () => {
 		chainDir = freshDir('spool-remove-chain-')
 		chainCwd = process.cwd()
-		vi.spyOn(console, 'log').mockImplementation(() => { })
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 
 		await create(chainDir, {
 			name: 'acme',

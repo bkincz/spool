@@ -245,7 +245,7 @@ describe('generated spool.vite.ts', () => {
 		const broken = freshDir('spool-helper-broken-')
 		writeFileSync(join(broken, 'spool.json'), JSON.stringify(manifest))
 		writeFileSync(join(broken, 'package.json'), '{ not json')
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => { })
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
 		const app = helper.spoolApp('shell', broken)
 		expect(app.federation.shared).toEqual({})

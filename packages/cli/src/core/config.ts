@@ -300,7 +300,7 @@ function normaliseShellAddon(raw: unknown): void {
 	const kept = addons.filter(name => name !== 'shell')
 	if (!kept.includes('navigation')) kept.push('navigation')
 	if (!kept.includes('federation')) kept.push('federation')
-		; (raw as { addons: unknown }).addons = kept
+	;(raw as { addons: unknown }).addons = kept
 
 	log.warn(
 		`${MANIFEST_FILE} lists the addon "shell", which is now split into "navigation" and "federation". Run \`spool upgrade\` to update ${MANIFEST_FILE} on disk.`
