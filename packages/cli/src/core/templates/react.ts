@@ -5,6 +5,7 @@
 import { pascalCase } from '../../util/names.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT, STATE_STORE_IMPORT } from './bridges.js'
 import { compositionHostApp } from './composition.js'
+import { typedExposeDeclaration } from './expose-typing.js'
 import type { FrameworkTemplate, MountHint, RemoteRef, TemplateExtras } from './types.js'
 
 export const reactTemplate: FrameworkTemplate = {
@@ -14,12 +15,18 @@ export const reactTemplate: FrameworkTemplate = {
 	viteEnv: `/// <reference types="vite/client" />\n`,
 	compilerOptions: { jsx: 'react-jsx' },
 	vitePlugin: { importLine: 'import react from "@vitejs/plugin-react";', call: 'react()' },
-	remoteTyping: ref =>
+	remoteTyping: (ref, ctx) =>
 		ref.exposes
-			.map(
-				expose =>
-					`declare module "${ref.name}/${expose}" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n`
-			)
+			.map(expose => {
+				const typed = typedExposeDeclaration(ref, expose, ctx)
+				if (typed) return typed
+				return `// Run \`spool types\` to type this from the remote's real export.
+declare module "${ref.name}/${expose}" {
+  const Component: React.ComponentType;
+  export default Component;
+}
+`
+			})
 			.join(''),
 	sourceFiles: (appName, isHost, refs, extras) => ({
 		'src/main.tsx': mainTsx(extras),

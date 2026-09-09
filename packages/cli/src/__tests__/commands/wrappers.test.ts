@@ -24,6 +24,8 @@ vi.mock('../../core/orchestrator.js', () => ({
 	deployAll: vi.fn().mockResolvedValue(undefined),
 }))
 
+vi.mock('../../util/net.js', () => ({ portOwner: vi.fn().mockResolvedValue(undefined) }))
+
 /*
  *   TEST SETUP
  ***************************************************************************************************/
@@ -59,12 +61,15 @@ afterEach(() => {
 describe('dev', () => {
 	it('runs every app by default', async () => {
 		await dev({})
-		expect(devAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+		expect(devAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), {})
 	})
 
 	it('passes the only filter through', async () => {
 		await dev({ only: 'shell, dashboard' })
-		expect(devAll).toHaveBeenCalledWith(expect.anything(), ['shell', 'dashboard'])
+		expect(devAll).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ only: ['shell', 'dashboard'] })
+		)
 	})
 })
 
@@ -74,12 +79,15 @@ describe('dev', () => {
 describe('preview', () => {
 	it('previews every app by default', async () => {
 		await preview({})
-		expect(previewAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), undefined)
+		expect(previewAll).toHaveBeenCalledWith(expect.objectContaining({ root: dir }), {})
 	})
 
 	it('passes the only filter through', async () => {
 		await preview({ only: 'shell, dashboard' })
-		expect(previewAll).toHaveBeenCalledWith(expect.anything(), ['shell', 'dashboard'])
+		expect(previewAll).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ only: ['shell', 'dashboard'] })
+		)
 	})
 })
 

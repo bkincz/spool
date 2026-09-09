@@ -120,8 +120,12 @@ describe('manifest server config', () => {
 
 		expect(app.server.port).toBe(5174)
 		expect(app.server.strictPort).toBe(true)
-		expect(app.server.cors).toBe(true)
+		expect(app.server.cors).toEqual({
+			origin: expect.arrayContaining(['http://localhost:5173', 'http://localhost:5174']),
+		})
+		// A manifest header merges alongside spool's own, it does not replace them.
 		expect(app.server.headers['X-Frame-Options']).toBe('DENY')
+		expect(app.server.headers['X-Content-Type-Options']).toBe('nosniff')
 	})
 
 	it('lets the manifest override a spool default', async () => {
@@ -153,6 +157,29 @@ describe('manifest server config', () => {
 		const { spoolApp } = await load('spool.vite.ts')
 		const app = spoolApp('dashboard', join(dir, 'apps/dashboard'))
 
-		expect(app.server).toEqual({ port: 5174, strictPort: true, cors: true })
+		expect(app.server).toEqual({
+			port: 5174,
+			strictPort: true,
+			cors: {
+				origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+			},
+			headers: {
+				'X-Content-Type-Options': 'nosniff',
+				'Content-Security-Policy': "frame-ancestors 'self'",
+			},
+		})
+	})
+})
+
+describe('edge-owned frame-ancestors', () => {
+	it('sends no CSP from the dev server when the edge owns it', async () => {
+		const manifest = readJson('spool.json')
+		manifest.apps.dashboard.frameAncestors = ['edge']
+		writeJson('spool.json', manifest)
+		const { spoolApp } = await load('spool.vite.ts')
+
+		const headers = spoolApp('dashboard', join(dir, 'apps/dashboard')).server.headers
+		expect(headers['Content-Security-Policy']).toBeUndefined()
+		expect(headers['X-Content-Type-Options']).toBe('nosniff')
 	})
 })

@@ -305,7 +305,7 @@ async function scaffold(
 		...Object.entries(manifest.apps).map(async ([name, app]) =>
 			writeFiles(
 				join(targetDir, app.path),
-				await formatFiles(appFiles(manifest, name, app, extras)),
+				await formatFiles(appFiles(manifest, name, app, extras, targetDir)),
 				{ provenance }
 			)
 		),

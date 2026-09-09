@@ -1,5 +1,114 @@
 # Changelog
 
+## 3.0.0
+
+The maintenance release. Everything spool writes is now tracked, everything it
+runs is now cleaned up, and the generated apps ship with production defaults.
+Run `spool upgrade` in an existing workspace; edited files are offered, never
+replaced, and `spool doctor` reports what is left to do by hand.
+
+### Breaking
+
+- Production builds minify. `minify: false` was never meant to reach `dist/`.
+- Every app gets a generated `public/_headers`, not only remotes: `nosniff`,
+  `Content-Security-Policy: frame-ancestors 'self'`, `no-cache` on the manifest
+  and entry, `immutable` on hashed assets. Remotes keep open CORS on the three
+  paths a host fetches, no longer on `/*`. Set `apps.<name>.frameAncestors` or
+  `apps.<name>.headers` in `spool.json` to change either. `frameAncestors:
+  ["edge"]` writes no CSP at all, for an app whose edge layer sets it per
+  request.
+- `<Remote>` is generic and takes `props`, forwarded to the component or as the
+  second argument of a mount function. `RemoteProps` gained a type parameter.
+- `spool.json` is validated at load: a remote naming itself, twice, or an app
+  that does not exist; a cycle through `remotes`; an `exposes` key without
+  `./` or a source outside the app folder; an app `path` that is absolute, has
+  `..`, or a trailing slash. Each used to surface later, or not at all.
+- `addons` is a closed list. `shell` is still accepted and means
+  `navigation` + `federation`, with one warning.
+- Dev and preview servers answer cross-origin requests only from the other
+  apps in the manifest, not from any origin. `server.cors` in `spool.json`
+  still overrides it.
+- `devAll` and `previewAll` take an options object. Only matters if you import
+  spool programmatically.
+
+### Fixed
+
+- `spool dev` no longer leaves vite processes behind. It traps SIGHUP and
+  SIGBREAK as well as Ctrl+C, cleans up on an uncaught error, kills the whole
+  process tree on Windows, and every child exits on its own if spool is gone.
+  `spool dev --kill` (and `preview --kill`) stops a run from another shell:
+  the spool process itself, its children, and anything else holding a
+  manifest port.
+- `<Remote>` retry recovers from a failed `mf-manifest.json` or
+  `remoteEntry.js`. It drops the federation runtime's cached remote before
+  loading again; before, "Try again" re-awaited the same rejection.
+- `spool upgrade` and `spool add` offer an edited `src/federation/*` file
+  instead of overwriting it. `--force`, with or without paths, now overrides a
+  file you previously told spool to keep.
+- `spool upgrade` compares files with line endings normalised, so a CRLF
+  checkout is no longer rewritten on every run.
+- `spool remove` unwires the app from every consumer, not only hosts, and
+  regenerates a consumer's registry when it loses its last remote.
+- A child killed by a signal counts as a failure. A missing package manager
+  stops the run with one message. A remote that never reports ready no longer
+  starts the hosts anyway. Output no longer clears earlier warnings or drops
+  the tail of a failed build.
+- `spool add` in a sentry workspace wires sentry into the new app, and
+  `spool addon sentry` updates `vite.config.ts` as well as the entry.
+- `spool doctor --fix` writes into `packages/*` members, which it used to
+  report and then skip.
+- Alignment never picks a prerelease, a `>=` range, or a `link:` as the value
+  to write across the workspace.
+- Sentry can tell one app's errors from another's. Built chunks carry the
+  owning app and `src/sentry.ts` tags the error from the failing frame. Shared
+  chunks are attributed to the app that served them under `loaded-first`.
+- `spool upgrade` leaves a dependency alone when its range names a source such
+  as `link:`, `workspace:` or `file:`.
+
+### Added
+
+- `spool dev --only <list> --rest built|<env>`: run the apps you are working on
+  and let the remotes they need come from their `dist/` or their deployed url.
+- `spool types`: emits declarations for every expose with the workspace's
+  TypeScript into `.spool/types`, and `remotes.d.ts` points at them. `dev` and
+  `build` run it first. Without it, remotes fall back to the prop-less typing.
+- Runtime remote overrides: `setRemoteOverride(name, url)` from
+  `@/federation` points a remote at another manifest via `localStorage`. On in
+  dev and preview; production builds need `"overrides": true` in `spool.json`.
+  The plugin registers only when a federation runtime exists, so tests and
+  plain builds are untouched, and it re-applies overrides to remotes the
+  runtime registered before it loaded.
+- `preloadRemote(name)` from `@/federation` warms a remote before it is shown.
+- Deploy records. `spool deploy --env <env>` writes `.spool/deploys.json` and
+  refuses to deploy an app whose shared versions another app already deployed
+  there cannot load. `spool promote --env <env> <app>@<sha>` and
+  `spool rollback --env <env> <app>` re-run a recorded deploy.
+- `spool graph [--json|--dot]`, `spool affected --since <ref> [--json]`,
+  `spool eject [--yes]`.
+- `spool doctor` checks manifest ports already in use (names the pid), drift
+  between generated files and `.spool/generated.json`, generated files that
+  are untracked, registry and typings against `exposes`, a host carrying
+  remote headers, shared entries an app never imports, a missing
+  `VITE_SENTRY_DSN`, and stale `.spool/types`. `--json` prints the problems.
+- `spool build --json` and `spool deploy --json` print one line per app.
+- `--timeout <seconds>` and `--no-ladle` on `spool dev`.
+- `spool ci --pin` resolves actions to commit shas. Generated workflows carry
+  `permissions`, `concurrency`, `persist-credentials: false`, a deploy job that
+  needs the check job, quoted values, path filters that include the workspace
+  packages, and the node version from `engines`.
+- Scaffolds gain `.gitattributes`, `.env.example` per app with the sentry
+  addon, and a `.gitignore` that keeps `.env.example` and `.spool/*.json`
+  while ignoring `.env*`, `.spool/types/` and pidfiles.
+- Generated vite and vitest configs dedupe the framework runtime (`react` and
+  `react-dom`, `vue`, or `svelte`), so a library linked in from a sibling
+  checkout never loads a second copy of it.
+- Every file spool writes is recorded in `.spool/generated.json`, including
+  addon files, and entries for files that moved or were removed are pruned.
+- `spool.json` keeps your key order and gains no defaults you did not write.
+- Sentry builds upload hidden source maps and delete them from `dist/`, send
+  no telemetry, and tag `environment` and `release`.
+- Vitest wiring for any app with `remotes`, including nested exposes.
+
 ## 2.7.2
 
 - Remotes can expose more than their app. Every key in `exposes` gets a registry

@@ -8,12 +8,15 @@ import { appFiles, hostWiringFiles, workspaceScripts } from '../../core/generato
 import { ALIAS_FILE } from '../../core/templates/quality.js'
 import { appDependencies, rootDevDependencies } from '../../core/versions.js'
 import { host, remote, makeManifest } from '../helpers.js'
-import type { Manifest } from '../../core/config.js'
+import type { AddonName, Manifest } from '../../core/config.js'
 
 /*
  *   TEST SETUP
  ***************************************************************************************************/
-function workspace(addons: string[], overrides: Parameters<typeof makeManifest>[0] = {}): Manifest {
+function workspace(
+	addons: AddonName[],
+	overrides: Parameters<typeof makeManifest>[0] = {}
+): Manifest {
 	const manifest = makeManifest({
 		shell: host({ remotes: ['browse'] }),
 		browse: remote({ path: 'apps/browse' }),
@@ -106,6 +109,23 @@ describe('test addon', () => {
 		expect(files['src/test/remote-mount.ts']).toBeDefined()
 	})
 
+	it('stubs a remote that itself consumes remotes, not just hosts', () => {
+		const manifest = workspace(['test'], {
+			browse: remote({ path: 'apps/browse', remotes: ['widget'] }),
+			widget: remote({
+				framework: 'svelte',
+				path: 'apps/widget',
+				port: 5175,
+				exposes: { './App': './src/mount.ts', './Panel': './src/panel.ts' },
+			}),
+		})
+		const files = appFiles(manifest, 'browse', manifest.apps.browse!)
+
+		expect(files[ALIAS_FILE]).toContain('"widget/App": resolvePath')
+		expect(files[ALIAS_FILE]).toContain('"widget/Panel": resolvePath')
+		expect(files['src/test/remote-mount.ts']).toBeDefined()
+	})
+
 	it('gives a remote a config with no stubs to alias', () => {
 		const manifest = workspace(['test'])
 		const files = appFiles(manifest, 'browse', manifest.apps.browse!)
@@ -145,6 +165,18 @@ describe('test addon', () => {
 
 		const scripts = JSON.parse(appFiles(on, 'shell', on.apps.shell!)['package.json']!).scripts
 		expect(scripts['test:run']).toBe('vitest run')
+	})
+
+	it('includes vitest.config.ts in the app tsconfig only when the addon is on', () => {
+		const on = workspace(['test'])
+		const off = workspace([])
+
+		expect(
+			JSON.parse(appFiles(on, 'browse', on.apps.browse!)['tsconfig.json']!).include
+		).toContain('vitest.config.ts')
+		expect(
+			JSON.parse(appFiles(off, 'browse', off.apps.browse!)['tsconfig.json']!).include
+		).not.toContain('vitest.config.ts')
 	})
 
 	it('picks the testing library for each app’s framework', () => {

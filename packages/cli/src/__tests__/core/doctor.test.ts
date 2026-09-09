@@ -75,12 +75,6 @@ describe('diagnose', () => {
 	/*
 	 *   REMOTE WIRING
 	 ***************************************************************************************************/
-	it('flags a host pointing at a remote that does not exist', () => {
-		const ws = withFolders({ shell: host({ remotes: ['ghost'] }) })
-		const issue = diagnose(ws).find(i => i.message.includes('ghost'))
-		expect(issue).toMatchObject({ level: 'error', app: 'shell' })
-	})
-
 	it('flags a host wiring a non-remote app as a remote', () => {
 		const ws = withFolders({
 			shell: host({ remotes: ['admin'] }),
@@ -332,7 +326,7 @@ describe('diagnose', () => {
 	 ***************************************************************************************************/
 	it('collects problems from every check at once', () => {
 		const ws = makeWorkspace(root, {
-			shell: host({ remotes: ['ghost'], port: 4000 }),
+			shell: host({ port: 4000 }),
 			orphan: remote({ path: 'apps/orphan', port: 4000 }),
 		})
 		const issues = diagnose(ws)

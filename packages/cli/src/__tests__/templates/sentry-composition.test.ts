@@ -82,10 +82,29 @@ describe('sentry addon', () => {
 		expect(env['apps/dash/.env']).toBeDefined()
 	})
 
-	it('gates the vite plugin on the auth token', () => {
-		const plugin = sentryVitePlugin()
+	it('stamps each chunk with the app that owns it', () => {
+		const plugin = sentryVitePlugin('dash')
 		expect(plugin.importLine).toContain('@sentry/vite-plugin')
-		expect(plugin.entry).toContain('process.env.SENTRY_AUTH_TOKEN')
+		expect(plugin.entry).toContain('moduleMetadata: { mfe: "dash" }')
+	})
+
+	it('mounts the vite plugin with or without the token, and gates only the upload', () => {
+		const { entry, helper } = sentryVitePlugin('dash')
+		expect(entry.startsWith('sentryVitePlugin(')).toBe(true)
+		expect(entry).toContain('disable: !process.env.SENTRY_AUTH_TOKEN')
+		expect(entry).toContain('filesToDeleteAfterUpload: ["./dist/**/*.map"]')
+		expect(entry).toContain('telemetry: false')
+		expect(entry).toContain('release: { name: process.env.SENTRY_RELEASE ?? gitSha() }')
+		expect(helper).toContain('function gitSha()')
+	})
+
+	it('reads the stamp back off the failing frame', () => {
+		const m = makeManifest({ shell: host() })
+		ADDONS.sentry.apply?.(m)
+		const init = sentryFiles(m)['apps/shell/src/sentry.ts']!
+		expect(init).toContain('moduleMetadataIntegration()')
+		expect(init).toContain('beforeSend: tagOriginMfe')
+		expect(init).toContain('module_metadata?.mfe')
 	})
 
 	it('has distinct notes for create and retroactive add', () => {
@@ -93,7 +112,7 @@ describe('sentry addon', () => {
 		expect(sentryNotes(false)[0]).toContain('initSentry')
 	})
 
-	it('adds the SDK, the vite plugin, and sourcemaps to an app', () => {
+	it('adds the SDK, the vite plugin, and a hidden sourcemap to an app', () => {
 		const m = makeManifest({ shell: host() })
 		ADDONS.sentry.apply?.(m)
 		const files = appFiles(m, 'shell', m.apps.shell!)
@@ -101,7 +120,10 @@ describe('sentry addon', () => {
 		expect(pkg.dependencies['@sentry/react']).toBeDefined()
 		expect(pkg.devDependencies['@sentry/vite-plugin']).toBeDefined()
 		expect(files['vite.config.ts']).toContain('sentryVitePlugin')
-		expect(files['vite.config.ts']).toContain('sourcemap: true')
+		// Hidden: the browser gets no sourceMappingURL comment, but the map is
+		// still emitted so it can be uploaded before deletion from dist.
+		expect(files['vite.config.ts']).toContain('sourcemap: "hidden"')
+		expect(files['vite.config.ts']).toContain('minify: true')
 	})
 
 	it('leaves the vite config untouched without the addon', () => {
@@ -264,7 +286,12 @@ describe('navigation and federation addons', () => {
 
 		const hostFederation = files['apps/shell/src/federation/index.ts']!
 		expect(hostFederation).toContain('export { Remote } from "./remote"')
-		expect(hostFederation).toContain('export { remotes, type RemoteEntry } from "./remotes"')
+		expect(hostFederation).toContain(
+			'export { remotes, type RemoteEntry, preloadRemote } from "./remotes"'
+		)
+		expect(hostFederation).toContain('if (getInstance()) {')
+		expect(hostFederation).toContain('registerPlugins([remoteOverridesPlugin])')
+		expect(hostFederation).toContain('applyRemoteOverrides()')
 
 		const remoteNav = files['apps/browse/src/navigation/index.ts']!
 		expect(remoteNav).toContain('export { location } from "./location"')
@@ -326,8 +353,22 @@ describe('starter shell per framework', () => {
 describe('remotesRegistry', () => {
 	it('records each remote by name with its contract and loader', () => {
 		const registry = remotesRegistry([
-			{ name: 'a', framework: 'react', contract: 'component', exposes: ['App'] },
-			{ name: 'b', framework: 'vue', contract: 'mount', exposes: ['App'] },
+			{
+				name: 'a',
+				path: 'apps/a',
+				framework: 'react',
+				contract: 'component',
+				exposes: ['App'],
+				exposeSources: { App: './src/app/app.tsx' },
+			},
+			{
+				name: 'b',
+				path: 'apps/b',
+				framework: 'vue',
+				contract: 'mount',
+				exposes: ['App'],
+				exposeSources: { App: './src/mount.ts' },
+			},
 		])
 		expect(registry).toContain('"a": { contract: "component"')
 		expect(registry).toContain('"b": { contract: "mount"')
@@ -336,7 +377,14 @@ describe('remotesRegistry', () => {
 
 	it('gives every named expose its own row', () => {
 		const registry = remotesRegistry([
-			{ name: 'a', framework: 'react', contract: 'component', exposes: ['App', 'Panel'] },
+			{
+				name: 'a',
+				path: 'apps/a',
+				framework: 'react',
+				contract: 'component',
+				exposes: ['App', 'Panel'],
+				exposeSources: { App: './src/app/app.tsx', Panel: './src/panel.tsx' },
+			},
 		])
 		expect(registry).toContain('"a/Panel": { contract: "component"')
 		expect(registry).toContain('import("a/Panel")')
@@ -344,7 +392,14 @@ describe('remotesRegistry', () => {
 
 	it('keeps App keyed by the bare remote name', () => {
 		const registry = remotesRegistry([
-			{ name: 'a', framework: 'react', contract: 'component', exposes: ['App', 'Panel'] },
+			{
+				name: 'a',
+				path: 'apps/a',
+				framework: 'react',
+				contract: 'component',
+				exposes: ['App', 'Panel'],
+				exposeSources: { App: './src/app/app.tsx', Panel: './src/panel.tsx' },
+			},
 		])
 		expect(registry).toContain('"a": { contract')
 		expect(registry).not.toContain('"a/App":')

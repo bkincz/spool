@@ -83,7 +83,12 @@ export class DevOutput {
 		const status = this.statuses.get(name)
 
 		if (!status) return
-		if (!this.streaming) this.drain(status)
+		if (this.streaming) {
+			// Not buffered while streaming, but a partial last line still is.
+			if (status.tail.trim()) this.write(status, status.tail, false)
+		} else {
+			this.drain(status)
+		}
 
 		this.statuses.delete(name)
 		this.total--
@@ -91,15 +96,16 @@ export class DevOutput {
 	}
 
 	chunk(status: AppStatus, data: Buffer, err: boolean): void {
+		const lines = (status.tail + data.toString()).split('\n')
+		status.tail = lines.pop() ?? ''
+
 		if (this.streaming) {
-			for (const line of data.toString().split('\n')) {
+			for (const line of lines) {
 				if (line.trim()) this.write(status, line, err)
 			}
 			return
 		}
 
-		const lines = (status.tail + data.toString()).split('\n')
-		status.tail = lines.pop() ?? ''
 		for (const line of lines) {
 			if (line.trim()) this.line(status, line, err)
 		}
@@ -304,8 +310,9 @@ export class DevOutput {
 		}
 
 		if (initial) {
+			const blank = '\n'.repeat(rows)
 			process.stdout.write(
-				`\x1b[2J\x1b[H\n${this.panel.join('\n')}\n\x1b[${top};${rows}r\x1b[${top};1H`
+				`${blank}\x1b[H\n${this.panel.join('\n')}\n\x1b[${top};${rows}r\x1b[${top};1H`
 			)
 
 			return

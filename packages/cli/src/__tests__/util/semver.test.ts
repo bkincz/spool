@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
-import { isUpgrade, maxRange, rangeFloor } from '../../util/semver.js'
+import { isLocalOverride, isUpgrade, maxRange, rangeFloor } from '../../util/semver.js'
 
 /*
  *   RANGE FLOOR
@@ -38,6 +38,27 @@ describe('rangeFloor', () => {
 /*
  *   IS UPGRADE
  ***************************************************************************************************/
+/*
+ *   LOCAL OVERRIDE
+ ***************************************************************************************************/
+describe('isLocalOverride', () => {
+	it('spots a range that names a source rather than a version', () => {
+		expect(isLocalOverride('link:../../tools/cli')).toBe(true)
+		expect(isLocalOverride('file:../pkg')).toBe(true)
+		expect(isLocalOverride('workspace:*')).toBe(true)
+		expect(isLocalOverride('catalog:default')).toBe(true)
+		expect(isLocalOverride('npm:@scope/other@^1.0.0')).toBe(true)
+		expect(isLocalOverride('github:owner/repo')).toBe(true)
+	})
+
+	it('leaves ordinary ranges alone', () => {
+		expect(isLocalOverride('^2.7.3')).toBe(false)
+		expect(isLocalOverride('~1.0.0')).toBe(false)
+		expect(isLocalOverride('19.2.0')).toBe(false)
+		expect(isLocalOverride(undefined)).toBe(false)
+	})
+})
+
 describe('isUpgrade', () => {
 	it('adds a dep that is not there yet', () => {
 		expect(isUpgrade(undefined, '^19.2.0')).toBe(true)
@@ -84,5 +105,21 @@ describe('maxRange', () => {
 	it('is null when nothing is comparable', () => {
 		expect(maxRange(['workspace:*', 'latest'])).toBeNull()
 		expect(maxRange([])).toBeNull()
+	})
+
+	it('never picks a ">=" range as the alignment target, even if it is highest', () => {
+		expect(maxRange(['^19.2.0', '>=21.0.0'])).toBe('^19.2.0')
+	})
+
+	it('never picks a bare ">" range as the alignment target', () => {
+		expect(maxRange(['^19.2.0', '>21.0.0'])).toBe('^19.2.0')
+	})
+
+	it('never picks a prerelease as the alignment target', () => {
+		expect(maxRange(['^19.2.0', '^22.0.0-beta.1'])).toBe('^19.2.0')
+	})
+
+	it('is null when every candidate is unpinnable, not just uncomparable', () => {
+		expect(maxRange(['>=1.0.0', '^2.0.0-beta.1'])).toBeNull()
 	})
 })

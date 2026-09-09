@@ -6,12 +6,12 @@ import { ADDONS } from '../../core/addons.js'
 import { workspaceScripts } from '../../core/generators.js'
 import { rootDevDependencies } from '../../core/versions.js'
 import { host, remote, makeManifest } from '../helpers.js'
-import type { Manifest } from '../../core/config.js'
+import type { AddonName, Manifest } from '../../core/config.js'
 
 /*
  *   TEST SETUP
  ***************************************************************************************************/
-function workspace(addons: string[]): Manifest {
+function workspace(addons: AddonName[]): Manifest {
 	const manifest = makeManifest({
 		shell: host({ remotes: ['browse'] }),
 		browse: remote({ path: 'apps/browse' }),
@@ -20,7 +20,7 @@ function workspace(addons: string[]): Manifest {
 	return manifest
 }
 
-const config = (addons: string[] = ['turbo']) =>
+const config = (addons: AddonName[] = ['turbo']) =>
 	JSON.parse(ADDONS.turbo.files(workspace(addons))['turbo.json']!)
 
 /*

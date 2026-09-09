@@ -4,7 +4,13 @@
 import { HELPER_FILE, type AppConfig, type Framework, type Manifest } from './config.js'
 import type { FileMap } from './filemap.js'
 import { PRETTIER_OPTIONS } from './format.js'
-import { appDependencies, NODE_RANGE, PNPM_VERSION, rootDevDependencies } from './versions.js'
+import {
+	appDependencies,
+	FRAMEWORK_DEPS,
+	NODE_RANGE,
+	PNPM_VERSION,
+	rootDevDependencies,
+} from './versions.js'
 import { yamlKey } from '../util/names.js'
 import {
 	ALIAS_FILE,
@@ -19,6 +25,7 @@ import {
 	TEMPLATES,
 	remoteRefs,
 	type RemoteRef,
+	type RemoteTypingContext,
 	type TemplateExtras,
 } from './templates/index.js'
 import { helperFiles } from './templates/helpers.js'
@@ -60,6 +67,9 @@ export function workspaceFiles(m: Manifest, allowBuilds: string[] = []): FileMap
 		'.prettierignore': `pnpm-lock.yaml\npackage-lock.json\nyarn.lock\n.yarn/\n`,
 		'package.json': workspacePackageJson(m),
 		'.gitignore': gitignore(m),
+		// Otherwise a file authored on Windows shows as entirely changed to
+		// everyone else the first time they touch it.
+		'.gitattributes': `* text=auto eol=lf\n`,
 		'tsconfig.base.json': json({
 			compilerOptions: {
 				target: 'ES2022',
@@ -102,7 +112,8 @@ export function workspaceFiles(m: Manifest, allowBuilds: string[] = []): FileMap
 }
 
 function gitignore(m: Manifest): string {
-	const base = `node_modules/\ndist/\n*.tsbuildinfo\n.DS_Store\n*.log\n`
+	// .spool/generated.json and deploys.json are committed; types and pidfiles are regenerated.
+	const base = `node_modules/\ndist/\n.spool/types/\n.spool/*.pid\n*.tsbuildinfo\n.DS_Store\n*.log\n.env\n.env.*\n!.env.example\n`
 	if (m.packageManager !== 'yarn') return base
 	// Yarn Berry writes these; the allowlist keeps committed Berry assets while
 	// ignoring the cache and PnP files. Harmless under Yarn Classic.
@@ -176,13 +187,14 @@ export function appFiles(
 	m: Manifest,
 	appName: string,
 	app: AppConfig,
-	extras: TemplateExtras = NO_EXTRAS
+	extras: TemplateExtras = NO_EXTRAS,
+	root: string = process.cwd()
 ): FileMap {
 	const isHost = app.type === 'host'
 	const refs = app.remotes.length ? remoteRefs(m, app) : []
 	const files: FileMap = {
 		'package.json': appPackageJson(m, appName, app, extras),
-		'tsconfig.json': appTsConfig(app.framework),
+		'tsconfig.json': appTsConfig(app.framework, m.addons.includes('test')),
 		'index.html': indexHtml(appName, app.framework),
 		'src/vite-env.d.ts': TEMPLATES[app.framework].viteEnv,
 		...TEMPLATES[app.framework].sourceFiles(appName, isHost, refs, extras),
@@ -190,10 +202,10 @@ export function appFiles(
 	}
 
 	if (refs.length) {
-		files['src/remotes.d.ts'] = remoteTypings(refs)
+		files['src/remotes.d.ts'] = remoteTypings(refs, { root, hostPath: app.path })
 	}
 	if (m.addons.includes('test')) {
-		files['vitest.config.ts'] = vitestConfig()
+		files['vitest.config.ts'] = vitestConfig(app.framework)
 		files[ALIAS_FILE] = remoteAliasModule(m, app)
 		Object.assign(files, remoteStubs(m, app))
 	}
@@ -202,27 +214,32 @@ export function appFiles(
 
 /**
  * The generated files `spool upgrade` refreshes on every run: the vite config
- * and, for remotes, the CORS headers static hosts need.
+ * and the response headers static hosts read for CORS, caching and the CSP.
  */
 export function appConfigFiles(appName: string, app: AppConfig, sentry = false): FileMap {
-	const files: FileMap = { 'vite.config.ts': viteConfig(appName, app, sentry) }
-	// Hosts fetch remote assets cross-origin in production, and static hosts
-	// send no CORS headers by default. Cloudflare Pages and Netlify both read
-	// this file; it is inert elsewhere.
-	if (app.type === 'remote') {
-		files['public/_headers'] = `/*\n  Access-Control-Allow-Origin: *\n`
+	return {
+		'vite.config.ts': viteConfig(appName, app, sentry),
+		'public/_headers': headersFile(appName, app),
 	}
-	return files
 }
 
 /**
  * Host files to rewrite when its remotes change. Only the ambient typings;
  * the vite config reads spool.json itself.
  */
-export function hostWiringFiles(m: Manifest, host: AppConfig): FileMap {
+export function hostWiringFiles(
+	m: Manifest,
+	host: AppConfig,
+	root: string = process.cwd()
+): FileMap {
 	const files: FileMap = {}
 	if (host.type !== 'host' && !host.remotes.length) return files
-	if (host.remotes.length) files['src/remotes.d.ts'] = remoteTypings(remoteRefs(m, host))
+	if (host.remotes.length) {
+		files['src/remotes.d.ts'] = remoteTypings(remoteRefs(m, host), {
+			root,
+			hostPath: host.path,
+		})
+	}
 
 	// The registry and the <Remote> primitive both depend on the host's remotes
 	// (the primitive imports the react bridge only when one needs it), so both
@@ -276,7 +293,7 @@ function sortKeys(record: Record<string, string>): Record<string, string> {
 	return Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)))
 }
 
-function appTsConfig(framework: Framework): string {
+function appTsConfig(framework: Framework, hasTest: boolean): string {
 	// Compiler options like the JSX runtime are per app, so one framework's
 	// settings never leak into another's through the shared base config. `@`
 	// maps to src (matched by the vite alias) so apps import from "@/...".
@@ -286,13 +303,13 @@ function appTsConfig(framework: Framework): string {
 			...TEMPLATES[framework].compilerOptions,
 			paths: { '@/*': ['./src/*'] },
 		},
-		include: ['src', 'vite.config.ts'],
+		include: ['src', 'vite.config.ts', ...(hasTest ? ['vitest.config.ts'] : [])],
 	})
 }
 
 function viteConfig(appName: string, app: AppConfig, sentry: boolean): string {
 	const plugin = TEMPLATES[app.framework].vitePlugin
-	const sentryPlugin = sentry ? sentryVitePlugin() : undefined
+	const sentryPlugin = sentry ? sentryVitePlugin(appName) : undefined
 
 	const imports = [
 		'import { defineConfig } from "vite";',
@@ -309,8 +326,12 @@ function viteConfig(appName: string, app: AppConfig, sentry: boolean): string {
 		...(sentryPlugin ? [sentryPlugin.entry] : []),
 	]
 
-	return `${imports}
+	const buildOptions = sentry
+		? `{ target: "esnext", minify: true, sourcemap: "hidden" }`
+		: `{ target: "esnext", minify: true }`
 
+	return `${imports}
+${sentryPlugin ? `\n${sentryPlugin.helper}` : ''}
 // Generated by spool. Wiring comes from spool.json via spool.vite.ts at
 // startup. Edit spool.json, not this file.
 export default defineConfig(({ command }) => {
@@ -318,12 +339,55 @@ export default defineConfig(({ command }) => {
   return {
     server: app.server,
     preview: app.server,
-    resolve: { alias: { "@": resolvePath(import.meta.dirname, "src") } },
+    // dedupe keeps one copy of the framework when a linked library brings its own.
+    resolve: {
+      alias: { "@": resolvePath(import.meta.dirname, "src") },
+      dedupe: ${JSON.stringify(FRAMEWORK_DEPS[app.framework].dependencies)},
+    },
     plugins: [${plugins.join(', ')}],
     // Module Federation needs top-level await, so the target is locked.
-    build: { target: "esnext", minify: false${sentry ? ', sourcemap: true' : ''} },
+    build: ${buildOptions},
   };
 });
+`
+}
+
+/*
+ *   HEADERS
+ ***************************************************************************************************/
+/** `self`/`none` become quoted CSP keywords; anything else is an origin, written as-is. */
+function frameAncestorsValue(tokens: string[] | undefined): string {
+	if (!tokens?.length) return "'self'"
+	return tokens
+		.map(token => (token === 'self' || token === 'none' ? `'${token}'` : token))
+		.join(' ')
+}
+
+export function headersFile(name: string, app: AppConfig): string {
+	const cors = app.type === 'remote' ? '\n  Access-Control-Allow-Origin: *' : ''
+	const extra = Object.entries(app.headers ?? {})
+		.map(([key, value]) => `\n  ${key}: ${value}`)
+		.join('')
+	// Two CSP headers intersect, so when the edge sets frame-ancestors this file must not.
+	const csp =
+		app.frameAncestors?.[0] === 'edge'
+			? ''
+			: `\n  Content-Security-Policy: frame-ancestors ${frameAncestorsValue(app.frameAncestors)}`
+	const note = csp === '' ? '\n# frame-ancestors is set by the edge for this app.' : ''
+
+	return `# Generated by spool for ${name}. Edit spool.json's headers and
+# frameAncestors, not this file.${note}
+/mf-manifest.json${cors}
+  Cache-Control: no-cache
+
+/remoteEntry.js${cors}
+  Cache-Control: no-cache
+
+/assets/*${cors}
+  Cache-Control: public, max-age=31536000, immutable
+
+/*
+  X-Content-Type-Options: nosniff${csp}${extra}
 `
 }
 
@@ -344,6 +408,6 @@ function indexHtml(appName: string, framework: Framework): string {
 `
 }
 
-function remoteTypings(refs: RemoteRef[]): string {
-	return refs.map(ref => TEMPLATES[ref.framework].remoteTyping(ref)).join('')
+function remoteTypings(refs: RemoteRef[], ctx: RemoteTypingContext): string {
+	return refs.map(ref => TEMPLATES[ref.framework].remoteTyping(ref, ctx)).join('')
 }

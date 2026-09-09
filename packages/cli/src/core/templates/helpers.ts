@@ -108,6 +108,20 @@ function spoolViteHelper(): string {
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+// spool sets SPOOL_PARENT_PID on every vite child it spawns for dev/build/
+// preview. Poll rather than rely on the child exiting on its own: a killed
+// or crashed spool leaves no other signal a plain vite process would see.
+const parentPid = process.env.SPOOL_PARENT_PID ? Number(process.env.SPOOL_PARENT_PID) : undefined;
+if (parentPid !== undefined && Number.isFinite(parentPid)) {
+  setInterval(() => {
+    try {
+      process.kill(parentPid, 0);
+    } catch {
+      process.exit(0);
+    }
+  }, 1000).unref();
+}
+
 export interface SpoolAppEntry {
   type: "host" | "remote";
   path: string;
@@ -116,6 +130,8 @@ export interface SpoolAppEntry {
   urls?: Record<string, string>;
   remotes?: string[];
   exposes?: Record<string, string>;
+  headers?: Record<string, string>;
+  frameAncestors?: string[];
 }
 
 export interface SpoolProxyEntry {
@@ -129,7 +145,7 @@ export interface SpoolServerConfig {
   proxy?: Record<string, string | SpoolProxyEntry>;
   headers?: Record<string, string>;
   host?: boolean | string;
-  cors?: boolean;
+  cors?: boolean | { origin: string[] };
 }
 
 export type SpoolShareStrategy = "version-first" | "loaded-first";
@@ -185,6 +201,12 @@ function remoteUrl(name: string, app: SpoolAppEntry, command: SpoolCommand): str
 }
 
 export type SpoolCommand = "build" | "serve";
+
+/** "self"/"none" become quoted CSP keywords; anything else is an origin, written as-is. */
+function frameAncestors(tokens: string[] | undefined): string {
+  if (!tokens?.length) return "'self'";
+  return tokens.map(token => (token === "self" || token === "none" ? "'" + token + "'" : token)).join(" ");
+}
 
 /**
  * A shared dep the app has not declared in its own package.json is dropped, so
@@ -255,14 +277,27 @@ export function spoolApp(
   // loaded-first keeps share scope off the remotes, so one remote you cannot
   // reach does not hold the page blank while it retries.
   const shareStrategy: SpoolShareStrategy = manifest.shareStrategy ?? "loaded-first";
-  // cors covers dev and preview, where a host fetches remotes cross-origin.
-  // Manifest settings come last so a workspace can override them, but never the
-  // port, which the app owns.
+  // An allowlist, not true: dev and preview serve every app on its own
+  // localhost port, and a wildcard origin cannot carry credentials.
+  const cors = { origin: Object.values(manifest.apps).map(entry => "http://localhost:" + entry.port) };
+  // Manifest settings come last so a workspace can override proxy/host/cors,
+  // but headers are merged (not replaced) so the CSP below always applies,
+  // and the port always stays the app's own.
+  const { headers: manifestHeaders, ...manifestServer } = expandEnv(manifest.server ?? {});
   const server = {
     port: app.port,
     strictPort: true,
-    cors: true,
-    ...expandEnv(manifest.server ?? {}),
+    cors,
+    ...manifestServer,
+    headers: {
+      "X-Content-Type-Options": "nosniff",
+      // "edge" means an edge layer sets frame-ancestors in production; dev sets none.
+      ...(app.frameAncestors?.[0] === "edge"
+        ? {}
+        : { "Content-Security-Policy": "frame-ancestors " + frameAncestors(app.frameAncestors) }),
+      ...app.headers,
+      ...manifestHeaders,
+    },
   };
 
   // An app can do both. A remote that consumes another remote gets exposes and

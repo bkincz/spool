@@ -13,6 +13,7 @@ import { freshDir, removeDir } from '../helpers.js'
  *   MOCKS
  ***************************************************************************************************/
 vi.mock('../../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../util/net.js', () => ({ portOwner: vi.fn().mockResolvedValue(undefined) }))
 
 /*
  *   TEST SETUP
@@ -227,5 +228,85 @@ describe('doctor --fix on shared workspace packages', () => {
 
 		expect(readJson(SHELL).dependencies.mylib).toBe('workspace:*')
 		expect(readJson(DASHBOARD).dependencies.mylib).toBe('link:../mylib')
+	})
+})
+
+/*
+ *   --FIX ON PACKAGES/* MEMBERS
+ ***************************************************************************************************/
+describe('doctor --fix on a non-app workspace package', () => {
+	it('writes the fix into a packages/* member, not just apps', async () => {
+		const { mkdirSync } = await import('node:fs')
+		mkdirSync(join(dir, 'packages/ui'), { recursive: true })
+		writeJson('packages/ui/package.json', { name: 'ui', dependencies: {} })
+
+		share('mylib')
+		setDep(SHELL, 'mylib', 'workspace:*')
+		setDep(DASHBOARD, 'mylib', 'workspace:*')
+		writeJson('packages/ui/package.json', {
+			name: 'ui',
+			dependencies: { mylib: 'workspace:*' },
+		})
+
+		await doctor({ fix: true })
+
+		// Nothing to fix here (every declarer already agrees); the point is
+		// packageDir resolves "packages/ui" at all instead of silently skipping it.
+		expect(readJson('packages/ui/package.json').dependencies.mylib).toBe('workspace:*')
+	})
+})
+
+/*
+ *   PORT OWNER
+ ***************************************************************************************************/
+describe('doctor: port already in use', () => {
+	it('reports the pid and command holding a manifest port', async () => {
+		const { portOwner } = await import('../../util/net.js')
+		vi.mocked(portOwner).mockImplementation(async port =>
+			port === 5173 ? { pid: 4242, command: 'node' } : undefined
+		)
+
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		await doctor()
+
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('4242'))
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('spool dev --kill'))
+	})
+})
+
+/*
+ *   --JSON
+ ***************************************************************************************************/
+describe('doctor --json', () => {
+	it('prints one object with a problems array shaped for machine consumption', async () => {
+		const manifest = readJson('spool.json')
+		manifest.apps.dashboard.port = manifest.apps.shell.port
+		writeJson('spool.json', manifest)
+
+		const plain = vi.spyOn(log, 'plain').mockImplementation(() => {})
+		await doctor({ json: true })
+
+		const printed = plain.mock.calls.map(call => String(call[0])).join('\n')
+		const parsed = JSON.parse(printed) as { problems: unknown[] }
+
+		expect(Array.isArray(parsed.problems)).toBe(true)
+		expect(parsed.problems.length).toBeGreaterThan(0)
+		expect(parsed.problems[0]).toMatchObject({
+			level: expect.any(String),
+			code: expect.any(String),
+			app: expect.any(String),
+			message: expect.any(String),
+		})
+	})
+
+	it('sets the exit code from --json output too', async () => {
+		const manifest = readJson('spool.json')
+		manifest.apps.dashboard.port = manifest.apps.shell.port
+		writeJson('spool.json', manifest)
+
+		vi.spyOn(log, 'plain').mockImplementation(() => {})
+		await doctor({ json: true })
+
+		expect(process.exitCode).toBe(1)
 	})
 })

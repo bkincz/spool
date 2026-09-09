@@ -3,6 +3,7 @@
  ***************************************************************************************************/
 import { z } from 'zod'
 import { CliError } from '../util/errors.js'
+import { log } from '../util/logger.js'
 
 /*
  *   SCHEMAS
@@ -60,6 +61,20 @@ export function parseFramework(value: string): Framework {
 	return Framework.parse(value)
 }
 
+export const ADDON_NAME_VALUES = [
+	'ladle',
+	'playwright',
+	'lint',
+	'test',
+	'turbo',
+	'state',
+	'sentry',
+	'navigation',
+	'federation',
+] as const
+const AddonNameSchema = z.enum(ADDON_NAME_VALUES)
+export type AddonName = z.infer<typeof AddonNameSchema>
+
 // Strict schemas: spool.json is hand-edited, so typos must fail loudly
 // instead of being silently dropped.
 export const AppSchema = z
@@ -82,6 +97,16 @@ export const AppSchema = z
 		remotes: z.array(z.string()).default([]),
 		/** Modules a remote exposes: exposeKey -> source path. */
 		exposes: z.record(z.string(), z.string()).default({}),
+		/** Extra response headers this app's dev server and generated public/_headers send. */
+		headers: z.record(z.string(), z.string()).optional(),
+		/** Origins allowed to iframe this app; becomes a frame-ancestors CSP directive. `edge` alone leaves the header to an edge layer. */
+		frameAncestors: z
+			.array(z.string())
+			.refine(list => !list.includes('edge') || list.length === 1, {
+				message:
+					'frameAncestors "edge" stands alone; the edge sets the header, so list nothing else',
+			})
+			.optional(),
 	})
 	.strict()
 export type AppConfig = z.infer<typeof AppSchema>
@@ -106,7 +131,7 @@ export const ServerSchema = z
 
 export type ServerConfig = z.infer<typeof ServerSchema>
 
-export const ManifestSchema = z
+const BaseManifestSchema = z
 	.object({
 		/** Org/workspace name; used for npm scope and federation naming. */
 		name: NameSchema,
@@ -121,12 +146,166 @@ export const ManifestSchema = z
 		/** Dev server settings shared by every app, e.g. a backend proxy. */
 		server: ServerSchema.optional(),
 		/** Enabled addons whose wiring isn't captured elsewhere in the manifest. */
-		addons: z.array(z.string()).default([]),
+		addons: z.array(AddonNameSchema).default([]),
 		/** App registry keyed by app name. */
 		apps: z.record(NameSchema, AppSchema).default({}),
+		/** Generates src/federation/overrides.ts, letting a host swap a remote's url at runtime without a rebuild. */
+		overrides: z.boolean().default(false),
 	})
 	.strict()
+
+export const ManifestSchema = BaseManifestSchema.superRefine((manifest, ctx) => {
+	for (const [name, app] of Object.entries(manifest.apps)) {
+		validateAppPath(name, app.path, ctx)
+		validateExposes(name, app, ctx)
+	}
+	validateRemotes(manifest, ctx)
+})
 export type Manifest = z.infer<typeof ManifestSchema>
+
+/*
+ *   CROSS-FIELD VALIDATION
+ ***************************************************************************************************/
+function isConfinedPath(value: string): boolean {
+	if (!value || value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value)) return false
+	return !value.split(/[\\/]/).some(segment => segment === '..')
+}
+
+function validateAppPath(name: string, path: string, ctx: z.RefinementCtx): void {
+	if (isConfinedPath(path) && !path.endsWith('/')) return
+
+	ctx.addIssue({
+		code: 'custom',
+		path: ['apps', name, 'path'],
+		message: `App "${name}" has an invalid path "${path}". Use a relative path inside the workspace, with no ".." segments and no trailing slash.`,
+	})
+}
+
+function validateExposes(name: string, app: AppConfig, ctx: z.RefinementCtx): void {
+	for (const [key, source] of Object.entries(app.exposes)) {
+		if (!key.startsWith('./')) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['apps', name, 'exposes', key],
+				message: `App "${name}" exposes key "${key}", which must start with "./".`,
+			})
+		}
+
+		if (!isConfinedPath(source)) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['apps', name, 'exposes', key],
+				message: `App "${name}" exposes "${key}" from "${source}", which must stay inside "${app.path}".`,
+			})
+		}
+	}
+}
+
+function validateRemotes(manifest: Manifest, ctx: z.RefinementCtx): void {
+	for (const [name, app] of Object.entries(manifest.apps)) {
+		const seen = new Set<string>()
+
+		app.remotes.forEach((remote, index) => {
+			const path = ['apps', name, 'remotes', index]
+
+			if (remote === name) {
+				ctx.addIssue({
+					code: 'custom',
+					path,
+					message: `App "${name}" lists itself as a remote.`,
+				})
+				return
+			}
+			if (seen.has(remote)) {
+				ctx.addIssue({
+					code: 'custom',
+					path,
+					message: `App "${name}" lists remote "${remote}" more than once.`,
+				})
+				return
+			}
+			seen.add(remote)
+
+			if (!manifest.apps[remote]) {
+				ctx.addIssue({
+					code: 'custom',
+					path,
+					message: `App "${name}" lists remote "${remote}", which is not in this workspace.`,
+				})
+			}
+		})
+	}
+
+	const cycle = findRemoteCycle(manifest)
+	if (cycle) {
+		ctx.addIssue({
+			code: 'custom',
+			path: ['apps'],
+			message: `Remotes form a cycle: ${cycle.join(' -> ')}.`,
+		})
+	}
+}
+
+/** Depth-first search for a cycle in the remotes graph; returns the first one found. */
+function findRemoteCycle(manifest: Manifest): string[] | undefined {
+	const state = new Map<string, 'visiting' | 'done'>()
+	const stack: string[] = []
+
+	function visit(name: string): string[] | undefined {
+		const app = manifest.apps[name]
+		if (!app) return undefined
+
+		state.set(name, 'visiting')
+		stack.push(name)
+
+		for (const remote of app.remotes) {
+			if (!manifest.apps[remote]) continue
+
+			if (state.get(remote) === 'visiting') {
+				const start = stack.indexOf(remote)
+				return [...stack.slice(start), remote]
+			}
+			if (state.get(remote) !== 'done') {
+				const found = visit(remote)
+				if (found) return found
+			}
+		}
+
+		stack.pop()
+		state.set(name, 'done')
+		return undefined
+	}
+
+	for (const name of Object.keys(manifest.apps)) {
+		if (state.get(name) === 'done') continue
+		const found = visit(name)
+		if (found) return found
+	}
+	return undefined
+}
+
+/**
+ * "shell" was split into "navigation" and "federation"; an older spool.json
+ * that still lists it is normalised in memory instead of failing to parse.
+ * `spool upgrade` is what rewrites the file on disk.
+ *
+ * TODO: remove this once the CLI no longer supports spool.json v1.
+ */
+function normaliseShellAddon(raw: unknown): void {
+	if (raw === null || typeof raw !== 'object' || !('addons' in raw)) return
+
+	const addons = (raw as { addons: unknown }).addons
+	if (!Array.isArray(addons) || !addons.includes('shell')) return
+
+	const kept = addons.filter(name => name !== 'shell')
+	if (!kept.includes('navigation')) kept.push('navigation')
+	if (!kept.includes('federation')) kept.push('federation')
+	;(raw as { addons: unknown }).addons = kept
+
+	log.warn(
+		`${MANIFEST_FILE} lists the addon "shell", which is now split into "navigation" and "federation". Run \`spool upgrade\` to update ${MANIFEST_FILE} on disk.`
+	)
+}
 
 /*
  *   FACTORIES
@@ -151,6 +330,8 @@ export function parseManifest(raw: unknown): Manifest {
 			'spool.json sets bundler "rspack", which is not supported yet. Run `spool upgrade` to remove the field, or set it to "vite".'
 		)
 	}
+
+	normaliseShellAddon(raw)
 
 	const result = ManifestSchema.safeParse(raw)
 	if (!result.success) {

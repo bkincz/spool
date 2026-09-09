@@ -16,9 +16,11 @@ import {
 import { appFiles, defaultExposes, hostWiringFiles } from '../core/generators.js'
 import { helperFiles } from '../core/templates/helpers.js'
 import { TEMPLATES, remoteRef, remoteRefs } from '../core/templates/index.js'
+import { sentryFiles } from '../core/templates/sentry.js'
+import { shareSentrySdks, templateExtras } from '../core/addons.js'
 import { appDependencies, FRAMEWORK_DEPS } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
-import { writeFiles } from '../core/fswrite.js'
+import { writeFiles, OwnedWriter } from '../core/fswrite.js'
 import { Provenance } from '../core/provenance.js'
 import { installDependencies } from '../core/install.js'
 import { type PackageJsonShape } from '../core/packages.js'
@@ -66,6 +68,7 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 	}
 	manifest.apps[name] = app
 	shareFrameworkRuntime(manifest, framework)
+	if (manifest.addons.includes('sentry')) shareSentrySdks(manifest)
 
 	const host = type === 'remote' ? wireIntoHost(manifest, name, opts.host) : undefined
 
@@ -81,22 +84,30 @@ export async function add(name: string, opts: AddOptions): Promise<void> {
 		)
 	}
 
+	const extras = templateExtras(manifest.addons)
 	await writeFiles(
 		join(ws.root, app.path),
-		await formatFiles(appFiles(manifest, name, app), ws.root),
+		await formatFiles(appFiles(manifest, name, app, extras, ws.root), ws.root),
 		{
 			provenance,
 		}
 	)
+	if (extras.sentry) await wireSentry(ws.root, manifest, name, app, provenance)
+
 	if (host) {
-		const typings = await formatFiles(hostWiringFiles(manifest, host.app), ws.root)
-		await writeFiles(join(ws.root, host.app.path), typings, { force: true, provenance })
+		const writer = new OwnedWriter(ws.root, false, provenance, false)
+		const typings = await formatFiles(hostWiringFiles(manifest, host.app, ws.root), ws.root)
+		for (const [rel, content] of Object.entries(typings)) {
+			await writer.replaceGenerated(join(ws.root, host.app.path), rel, content, host.name)
+		}
+
 		// A bridge the host now needs is created, but never overwritten in
 		// case the user has edited it.
 		const bridge = TEMPLATES[host.app.framework].bridgeFiles(remoteRefs(manifest, host.app))
 		await writeFiles(join(ws.root, host.app.path), await formatFiles(bridge, ws.root), {
 			provenance,
 		})
+
 		// A foreign-framework remote makes the host depend on that framework's
 		// bridge runtime; add the missing deps without touching existing ones.
 		await syncHostDeps(ws.root, manifest, host.app)
@@ -140,6 +151,23 @@ function wireIntoHost(manifest: Manifest, remote: string, requested?: string): H
 	return { name: hostName, app }
 }
 
+async function wireSentry(
+	root: string,
+	manifest: Manifest,
+	name: string,
+	app: AppConfig,
+	provenance: Provenance
+): Promise<void> {
+	const prefix = `${app.path}/`
+	const files = Object.fromEntries(
+		Object.entries(sentryFiles(manifest)).filter(([rel]) => rel.startsWith(prefix))
+	)
+	if (!Object.keys(files).length) return
+
+	await writeFiles(root, await formatFiles(files, root), { provenance })
+	log.step(`${name}: wired sentry; set VITE_SENTRY_DSN before it reports`)
+}
+
 async function syncHostDeps(root: string, manifest: Manifest, host: AppConfig): Promise<void> {
 	const expected = appDependencies(manifest, host)
 	const target = join(root, host.path, 'package.json')
@@ -164,7 +192,7 @@ async function syncHostDeps(root: string, manifest: Manifest, host: AppConfig): 
 		}
 	}
 	if (!changed) return
-	const formatted = await formatFiles({ 'package.json': `${JSON.stringify(pkg)}\n` })
+	const formatted = await formatFiles({ 'package.json': `${JSON.stringify(pkg)}\n` }, root)
 	await writeFile(target, formatted['package.json']!, 'utf8')
 }
 

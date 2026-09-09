@@ -7,10 +7,22 @@ export type RemoteContract = 'component' | 'mount'
 
 export interface RemoteRef {
 	name: string
+	/** Folder relative to the workspace root, e.g. "apps/dashboard". */
+	path: string
 	framework: Framework
 	contract: RemoteContract
 	/** Bare expose names the remote offers, e.g. ["App", "NewAssessment"]. */
 	exposes: string[]
+	/** Bare expose name -> its source path, e.g. { App: "./src/app/app.tsx" }. */
+	exposeSources: Record<string, string>
+}
+
+/** Where a host's remote typings live, so remoteTyping can find `spool types` output. */
+export interface RemoteTypingContext {
+	/** Workspace root, absolute. */
+	root: string
+	/** The consuming host's app path, relative to root. */
+	hostPath: string
 }
 
 export interface MountHint {
@@ -46,7 +58,7 @@ export interface FrameworkTemplate {
 	/** Vite plugin wiring for the generated vite.config.ts. */
 	vitePlugin: { importLine: string; call: string }
 	/** Ambient module declarations for one remote of this framework, one per expose. */
-	remoteTyping(ref: RemoteRef): string
+	remoteTyping(ref: RemoteRef, ctx: RemoteTypingContext): string
 	/** App sources: the entry file plus the App component, host or remote flavored. */
 	sourceFiles(
 		appName: string,

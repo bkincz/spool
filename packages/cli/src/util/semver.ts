@@ -25,6 +25,13 @@ export function rangeFloor(range: string): Version | null {
 	return lowest
 }
 
+export function isLocalOverride(range: string | undefined): boolean {
+	return range !== undefined && LOCAL_PROTOCOL.test(range)
+}
+
+const LOCAL_PROTOCOL =
+	/^(link|file|workspace|portal|catalog|npm|git|git\+ssh|git\+https|github|bitbucket|gitlab|https?):/
+
 export function isUpgrade(from: string | undefined, to: string): boolean {
 	if (from === undefined) return true
 	if (from === to) return false
@@ -36,11 +43,21 @@ export function isUpgrade(from: string | undefined, to: string): boolean {
 	return compareVersions(next, current) > 0
 }
 
+const OPEN_RANGE = /^\s*>=?/
+const PRERELEASE = /-[0-9A-Za-z-.]+(?:\+[0-9A-Za-z-.]+)?$/
+
+function isPinnable(range: string): boolean {
+	if (OPEN_RANGE.test(range)) return false
+	return !range.split('||').some(alternative => PRERELEASE.test(alternative.trim()))
+}
+
 export function maxRange(ranges: Iterable<string>): string | null {
 	let best: string | null = null
 	let bestFloor: Version | null = null
 
 	for (const range of ranges) {
+		if (!isPinnable(range)) continue
+
 		const floor = rangeFloor(range)
 
 		if (!floor) continue
