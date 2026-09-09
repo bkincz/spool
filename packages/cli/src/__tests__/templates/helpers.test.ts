@@ -20,7 +20,12 @@ interface HelperModule {
 		from?: string,
 		command?: 'build' | 'serve'
 	) => {
-		server: { port: number; strictPort: boolean }
+		server: {
+			port: number
+			strictPort: boolean
+			cors?: boolean | { origin: string[] }
+			headers?: Record<string, string>
+		}
 		federation: {
 			name: string
 			filename?: string
@@ -87,7 +92,14 @@ afterEach(() => {
 describe('generated spool.vite.ts', () => {
 	it('derives a host config with local dev URLs for its remotes', () => {
 		const app = helper.spoolApp('shell', dir)
-		expect(app.server).toEqual({ port: 5173, strictPort: true, cors: true })
+		expect(app.server).toMatchObject({ port: 5173, strictPort: true })
+		expect(app.server.cors).toEqual({
+			origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175'],
+		})
+		expect(app.server.headers).toMatchObject({
+			'X-Content-Type-Options': 'nosniff',
+			'Content-Security-Policy': "frame-ancestors 'self'",
+		})
 		expect(app.federation.name).toBe('shell')
 		expect(app.federation.remotes?.dashboard).toBe('http://localhost:5174/mf-manifest.json')
 		expect(app.federation.shared).toEqual({
@@ -143,7 +155,10 @@ describe('generated spool.vite.ts', () => {
 
 	it('derives a remote config with its exposes and entry filename', () => {
 		const app = helper.spoolApp('dashboard', dir)
-		expect(app.server).toEqual({ port: 5174, strictPort: true, cors: true })
+		expect(app.server).toMatchObject({ port: 5174, strictPort: true })
+		expect(app.server.cors).toEqual({
+			origin: expect.arrayContaining(['http://localhost:5174']),
+		})
 		expect(app.federation.filename).toBe('remoteEntry.js')
 		expect(app.federation.exposes).toEqual({ './App': './src/app/app.tsx' })
 		expect(app.federation.remotes).toBeUndefined()
@@ -185,7 +200,10 @@ describe('generated spool.vite.ts', () => {
 		const bad = freshDir('spool-helper-bad-')
 		writeFileSync(
 			join(bad, 'spool.json'),
-			JSON.stringify(makeManifest({ shell: host({ remotes: ['ghost'] }) }))
+			JSON.stringify({
+				...manifest,
+				apps: { shell: { ...host({ remotes: ['ghost'] }) } },
+			})
 		)
 		expect(() => helper.spoolApp('shell', bad)).toThrow('unknown remote "ghost"')
 		removeDir(bad)
@@ -227,7 +245,7 @@ describe('generated spool.vite.ts', () => {
 		const broken = freshDir('spool-helper-broken-')
 		writeFileSync(join(broken, 'spool.json'), JSON.stringify(manifest))
 		writeFileSync(join(broken, 'package.json'), '{ not json')
-		const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+		const warn = vi.spyOn(console, 'warn').mockImplementation(() => { })
 
 		const app = helper.spoolApp('shell', broken)
 		expect(app.federation.shared).toEqual({})

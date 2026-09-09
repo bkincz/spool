@@ -2,7 +2,8 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { basename } from 'node:path'
-import type { AppConfig, Framework, Manifest } from '../config.js'
+import { DEFAULT_FRAMEWORK, type AppConfig, type Framework, type Manifest } from '../config.js'
+import { FRAMEWORK_DEPS } from '../versions.js'
 import type { FileMap } from '../filemap.js'
 import { remoteRefs, type RemoteRef } from './index.js'
 
@@ -51,7 +52,7 @@ function frameworkLint(m: Manifest): { imports: string[]; extends: string[]; blo
 
 export function eslintConfig(m: Manifest): string {
 	const { imports, extends: extend, blocks } = frameworkLint(m)
-	const shared = ['js.configs.recommended', 'tseslint.configs.recommended', ...extend]
+	const shared = ['js.configs.recommended', 'tseslint.configs.recommendedTypeChecked', ...extend]
 
 	return `import js from "@eslint/js";
 import globals from "globals";
@@ -67,6 +68,7 @@ ${shared.map(entry => `      ${entry},`).join('\n')}
     ],
     languageOptions: {
       globals: { ...globals.browser, ...globals.node },
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },
   },
 ${blocks.join('\n')}${blocks.length ? '\n' : ''}]);
@@ -76,11 +78,12 @@ ${blocks.join('\n')}${blocks.length ? '\n' : ''}]);
 /*
  *   VITEST
  ***************************************************************************************************/
-/** The generated half: aliases that name every remote, so they go stale. */
 export const ALIAS_FILE = 'src/test/remotes.alias.ts'
 
 export function remoteAliasModule(m: Manifest, app: AppConfig): string {
-	const refs = app.type === 'host' ? remoteRefs(m, app) : []
+	// A remote can consume remotes too, so anything with a remotes list needs
+	// stubs, not just hosts.
+	const refs = app.remotes.length ? remoteRefs(m, app) : []
 	const entries = refs.flatMap(ref =>
 		ref.exposes.map(
 			expose =>
@@ -100,7 +103,7 @@ ${entries.join('\n')}${entries.length ? '\n' : ''}};
 `
 }
 
-export function vitestConfig(): string {
+export function vitestConfig(framework: Framework = DEFAULT_FRAMEWORK): string {
 	return `import { defineConfig } from "vitest/config";
 import { resolve as resolvePath } from "node:path";
 import { remoteAliases } from "./src/test/remotes.alias";
@@ -112,6 +115,8 @@ export default defineConfig({
       "@": resolvePath(import.meta.dirname, "src"),
       ...remoteAliases,
     },
+    // dedupe keeps one copy of the framework when a linked library brings its own.
+    dedupe: ${JSON.stringify(FRAMEWORK_DEPS[framework].dependencies)},
   },
   test: {
     environment: "happy-dom",
@@ -127,7 +132,7 @@ export default defineConfig({
 }
 
 export function remoteStubs(m: Manifest, app: AppConfig): FileMap {
-	if (app.type !== 'host') return {}
+	if (!app.remotes.length) return {}
 
 	const files: FileMap = {}
 	for (const ref of remoteRefs(m, app)) {

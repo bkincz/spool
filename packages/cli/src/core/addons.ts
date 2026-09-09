@@ -6,9 +6,10 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import * as p from '@clack/prompts'
 import pc from 'picocolors'
-import type { Manifest } from './config.js'
+import type { AddonName, Manifest } from './config.js'
 import { NO_EXTRAS, type TemplateExtras } from './templates/index.js'
 import { sentryFiles, sentryNotes } from './templates/sentry.js'
+import { SENTRY_SDK } from './versions.js'
 import { ladleFiles } from './templates/ladle.js'
 import { playwrightFiles } from './templates/playwright.js'
 import { stateFiles } from './templates/state.js'
@@ -53,8 +54,16 @@ export interface Addon {
 	notes(m: Manifest, composed: boolean): string[]
 }
 
-function enableAddon(m: Manifest, name: string): void {
+function enableAddon(m: Manifest, name: AddonName): void {
 	if (!m.addons.includes(name)) m.addons.push(name)
+}
+
+export function shareSentrySdks(m: Manifest): void {
+	const frameworks = new Set(Object.values(m.apps).map(app => app.framework))
+	for (const framework of frameworks) {
+		const sdk = SENTRY_SDK[framework]
+		if (!m.shared.includes(sdk)) m.shared.push(sdk)
+	}
 }
 
 function navigationAddonFiles(m: Manifest): FileMap {
@@ -82,7 +91,7 @@ function testFiles(m: Manifest): FileMap {
 	const files: FileMap = {}
 
 	for (const app of Object.values(m.apps)) {
-		files[`${app.path}/vitest.config.ts`] = vitestConfig()
+		files[`${app.path}/vitest.config.ts`] = vitestConfig(app.framework)
 		files[`${app.path}/${ALIAS_FILE}`] = remoteAliasModule(m, app)
 
 		for (const [rel, content] of Object.entries(remoteStubs(m, app))) {
@@ -93,18 +102,7 @@ function testFiles(m: Manifest): FileMap {
 	return files
 }
 
-export const ADDONS: Record<
-	| 'ladle'
-	| 'playwright'
-	| 'lint'
-	| 'test'
-	| 'turbo'
-	| 'state'
-	| 'sentry'
-	| 'navigation'
-	| 'federation',
-	Addon
-> = {
+export const ADDONS: Record<AddonName, Addon> = {
 	ladle: {
 		label: 'Ladle',
 		hint: 'design-system package in packages/ui with a component workshop',
@@ -192,7 +190,10 @@ export const ADDONS: Record<
 		hint: 'error and performance monitoring wired into every app',
 		unavailable: () => undefined,
 		present: (_root, m) => m.addons.includes('sentry'),
-		apply: m => enableAddon(m, 'sentry'),
+		apply: m => {
+			enableAddon(m, 'sentry')
+			shareSentrySdks(m)
+		},
 		files: m => sentryFiles(m),
 		allowBuilds: ['@sentry/cli'],
 		notes: (_m, composed) => sentryNotes(composed),
@@ -222,7 +223,7 @@ export const ADDONS: Record<
 	},
 }
 
-export type AddonName = keyof typeof ADDONS
+export type { AddonName } from './config.js'
 
 export const ADDON_NAMES = Object.keys(ADDONS) as AddonName[]
 

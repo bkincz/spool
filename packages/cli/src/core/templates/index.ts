@@ -18,18 +18,39 @@ export const TEMPLATES: Record<Framework, FrameworkTemplate> = {
  ***************************************************************************************************/
 export function remoteRefs(m: Manifest, host: AppConfig): RemoteRef[] {
 	return host.remotes.map(name =>
-		remoteRef(name, m.apps[name]?.framework ?? DEFAULT_FRAMEWORK, exposeNames(m.apps[name]))
+		remoteRef(
+			name,
+			m.apps[name]?.framework ?? DEFAULT_FRAMEWORK,
+			exposeSourceMap(m.apps[name]),
+			m.apps[name]?.path
+		)
 	)
 }
 
-export function remoteRef(name: string, framework: Framework, exposes = ['App']): RemoteRef {
-	return { name, framework, contract: TEMPLATES[framework].remoteContract, exposes }
+export function remoteRef(
+	name: string,
+	framework: Framework,
+	exposeSources: Record<string, string> = { App: TEMPLATES[framework].exposeEntry },
+	path: string = `apps/${name}`
+): RemoteRef {
+	return {
+		name,
+		path,
+		framework,
+		contract: TEMPLATES[framework].remoteContract,
+		exposes: Object.keys(exposeSources),
+		exposeSources,
+	}
 }
 
-/** Expose keys without their "./" prefix. A remote always offers App. */
-function exposeNames(app: AppConfig | undefined): string[] {
-	const names = Object.keys(app?.exposes ?? {}).map(key => key.replace(/^[.][/]/, ''))
-	return names.length ? names : ['App']
+/** Expose keys without their "./" prefix, mapped to their source path. A remote always offers App. */
+function exposeSourceMap(app: AppConfig | undefined): Record<string, string> {
+	const entries = Object.entries(app?.exposes ?? {}).map(
+		([key, source]) => [key.replace(/^[.][/]/, ''), source] as const
+	)
+	return entries.length
+		? Object.fromEntries(entries)
+		: { App: TEMPLATES[app?.framework ?? DEFAULT_FRAMEWORK].exposeEntry }
 }
 
 export * from './types.js'

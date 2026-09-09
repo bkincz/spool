@@ -2,7 +2,7 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import {
 	findWorkspaceRoot,
@@ -83,5 +83,55 @@ describe('saveManifest', () => {
 
 		const reloaded = await loadWorkspace(root)
 		expect(reloaded?.manifest.apps.added?.port).toBe(5199)
+	})
+
+	it('keeps the hand-written key order and does not materialize defaults', async () => {
+		const raw = `{\n  "apps": {\n    "shell": { "type": "host", "path": "apps/shell", "port": 5173 }\n  },\n  "name": "acme"\n}\n`
+		writeFileSync(join(root, 'spool.json'), raw)
+
+		const ws = await requireWorkspace(root)
+		ws.manifest.apps.shell!.port = 5174
+		await saveManifest(ws)
+
+		const written = readFileSync(join(root, 'spool.json'), 'utf8')
+		const parsed = JSON.parse(written) as Record<string, unknown>
+
+		expect(Object.keys(parsed)).toEqual(['apps', 'name'])
+		expect(parsed).not.toHaveProperty('version')
+		expect(parsed).not.toHaveProperty('shared')
+		expect(parsed).not.toHaveProperty('addons')
+		expect((parsed.apps as Record<string, { port: number }>)['shell']?.port).toBe(5174)
+	})
+
+	it('keeps an app-level default the file already spelled out explicitly', async () => {
+		const raw = JSON.stringify({
+			name: 'acme',
+			apps: {
+				shell: { type: 'host', path: 'apps/shell', port: 5173, remotes: [] },
+			},
+		})
+		writeFileSync(join(root, 'spool.json'), raw)
+
+		const ws = await requireWorkspace(root)
+		await saveManifest(ws)
+
+		const parsed = JSON.parse(readFileSync(join(root, 'spool.json'), 'utf8')) as {
+			apps: { shell: Record<string, unknown> }
+		}
+		expect(parsed.apps.shell).toHaveProperty('remotes')
+	})
+
+	it('writes a new field a mutation actually set, even though it is not in the original', async () => {
+		const raw = JSON.stringify({ name: 'acme', apps: {} })
+		writeFileSync(join(root, 'spool.json'), raw)
+
+		const ws = await requireWorkspace(root)
+		ws.manifest.shared.push('@bkincz/clutch')
+		await saveManifest(ws)
+
+		const parsed = JSON.parse(readFileSync(join(root, 'spool.json'), 'utf8')) as {
+			shared: string[]
+		}
+		expect(parsed.shared).toEqual(['react', 'react-dom', '@bkincz/clutch'])
 	})
 })

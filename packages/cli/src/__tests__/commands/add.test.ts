@@ -146,7 +146,7 @@ describe('add', () => {
 		expect(read('apps/widget/src/mount.ts')).toContain('mountApp')
 		expect(read('apps/widget/vite.config.ts')).toContain('@sveltejs/vite-plugin-svelte')
 		expect(read('apps/shell/src/remotes.d.ts')).toContain(
-			'const mount: (target: HTMLElement) => () => void'
+			'const mount: (target: HTMLElement, props?: Record<string, unknown>) => () => void'
 		)
 	})
 

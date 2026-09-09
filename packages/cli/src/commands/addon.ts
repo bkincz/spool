@@ -13,6 +13,7 @@ import {
 	promptAddons,
 	type AddonName,
 } from '../core/addons.js'
+import { appConfigFiles } from '../core/generators.js'
 import {
 	SENTRY_SDK,
 	SENTRY_VERSION,
@@ -20,7 +21,8 @@ import {
 	SHARED_EXTRAS,
 } from '../core/versions.js'
 import { formatFiles } from '../core/format.js'
-import { writeFiles } from '../core/fswrite.js'
+import { writeFiles, OwnedWriter } from '../core/fswrite.js'
+import { Provenance } from '../core/provenance.js'
 import { installDependencies } from '../core/install.js'
 import { dependencyHome, type PackageJsonShape } from '../core/packages.js'
 import type { FileMap } from '../core/filemap.js'
@@ -58,15 +60,21 @@ export async function addon(entries: string[], opts: AddonOptions): Promise<void
 	await saveManifest(ws)
 	await declareAppDeps(ws)
 
+	const provenance = Provenance.load(ws.root)
 	for (const name of names) {
 		const picked = ADDONS[name]
 		// Existing files are never overwritten, so rerunning only fills gaps.
 		const files = scopeToApps(picked.files(ws.manifest), ws, opts.only)
-		const { written } = await writeFiles(ws.root, await formatFiles(files, ws.root))
+		const { written } = await writeFiles(ws.root, await formatFiles(files, ws.root), {
+			provenance,
+		})
 		await allowPnpmBuilds(ws, picked.allowBuilds)
 		log.success(`added ${name}${written.length ? '' : ' (files already present, left alone)'}`)
 		for (const note of picked.notes(ws.manifest, false)) log.step(note)
 	}
+
+	if (names.includes('sentry')) await regenerateViteConfigs(ws, provenance)
+	await provenance.save()
 
 	const pm = ws.manifest.packageManager
 	if (opts.install === false) {
@@ -99,6 +107,18 @@ function scopeToApps(files: FileMap, ws: Workspace, only: string | undefined): F
 	)
 }
 
+async function regenerateViteConfigs(ws: Workspace, provenance: Provenance): Promise<void> {
+	const writer = new OwnedWriter(ws.root, false, provenance, false)
+
+	for (const [name, app] of Object.entries(ws.manifest.apps)) {
+		const dir = join(ws.root, app.path)
+		if (!existsSync(dir)) continue
+
+		const generated = await formatFiles(appConfigFiles(name, app, true), ws.root)
+		await writer.replaceGenerated(dir, 'vite.config.ts', generated['vite.config.ts']!, name)
+	}
+}
+
 /*
  *   STEPS
  ***************************************************************************************************/
@@ -124,8 +144,6 @@ async function resolveNames(entries: string[], ws: Workspace): Promise<AddonName
 type Section = 'dependencies' | 'devDependencies'
 type WantedDep = [dep: string, range: string, section: Section]
 
-/** Deps an addon adds to existing apps: shared singletons must be declared per
- * app or federation drops them, and sentry's SDK/plugin aren't shared at all. */
 function wantedAppDeps(ws: Workspace, app: Workspace['manifest']['apps'][string]): WantedDep[] {
 	const sharedPackages = new Set(ws.manifest.shared.map(packageName))
 	const wanted: WantedDep[] = Object.entries(SHARED_EXTRAS)
@@ -168,7 +186,7 @@ async function declareAppDeps(ws: Workspace): Promise<void> {
 		}
 		if (!changed.length) continue
 
-		const formatted = await formatFiles({ 'package.json': `${JSON.stringify(pkg)}\n` })
+		const formatted = await formatFiles({ 'package.json': `${JSON.stringify(pkg)}\n` }, ws.root)
 		await writeFile(target, formatted['package.json']!, 'utf8')
 		log.step(`${name}: updated package.json (${changed.join(', ')})`)
 	}
@@ -194,7 +212,7 @@ async function allowPnpmBuilds(ws: Workspace, builds: string[]): Promise<void> {
 		return
 	}
 	// Formatting the patch keeps both write paths on prettier's yaml style.
-	const formatted = await formatFiles({ 'pnpm-workspace.yaml': patched })
+	const formatted = await formatFiles({ 'pnpm-workspace.yaml': patched }, ws.root)
 	await writeFile(target, formatted['pnpm-workspace.yaml']!, 'utf8')
 	log.step(`allowed postinstall scripts for ${missing.join(', ')} in pnpm-workspace.yaml`)
 }

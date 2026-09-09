@@ -2,17 +2,21 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { create } from '../../commands/create.js'
 import { ci } from '../../commands/ci.js'
 import { log } from '../../util/logger.js'
+import { runCaptured } from '../../util/exec.js'
 import { freshDir, removeDir } from '../helpers.js'
 
 /*
  *   MOCKS
  ***************************************************************************************************/
-vi.mock('../../util/exec.js', () => ({ run: vi.fn().mockResolvedValue(undefined) }))
+vi.mock('../../util/exec.js', () => ({
+	run: vi.fn().mockResolvedValue(undefined),
+	runCaptured: vi.fn(),
+}))
 
 /*
  *   TEST SETUP
@@ -110,5 +114,81 @@ describe('ci', () => {
 
 		// The scaffold has no lint or test script without those addons.
 		expect(yaml).not.toContain('pnpm run lint')
+	})
+
+	it('quotes interpolated values, so a colon or special character cannot break the yaml', async () => {
+		await ci({})
+		const yaml = readFileSync(workflow('dashboard'), 'utf8')
+
+		// Written through spool's formatter, which prefers single quotes; the
+		// generator itself always quotes with JSON.stringify before that runs.
+		expect(yaml).toContain("working-directory: 'apps/dashboard'")
+		expect(yaml).toContain("run: 'deploy-dashboard'")
+	})
+
+	it('sets permissions, a concurrency group, and makes deploy need check', async () => {
+		await ci({})
+		const yaml = readFileSync(workflow('dashboard'), 'utf8')
+
+		expect(yaml).toContain('contents: read')
+		expect(yaml).toContain('cancel-in-progress: true')
+		expect(yaml).toContain('needs: check')
+		expect(yaml).toContain('persist-credentials: false')
+	})
+
+	it('uses the workspace engines.node floor for the node version', async () => {
+		await ci({})
+		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
+		// create() scaffolds engines.node as ">=22.12.0".
+		expect(yaml).toContain("node-version: '22.12.0'")
+	})
+
+	it('falls back to packages/** when the workspace has no shared package folder', async () => {
+		await ci({})
+		const yaml = readFileSync(workflow('dashboard'), 'utf8')
+
+		expect(yaml).toContain("'packages/**'")
+		expect(yaml).not.toContain("'apps/shell/**'")
+	})
+
+	it('includes a real shared package folder in the path filters', async () => {
+		mkdirSync(join(dir, 'packages/ui'), { recursive: true })
+		writeFileSync(join(dir, 'packages/ui/package.json'), JSON.stringify({ name: 'ui' }))
+
+		await ci({})
+		const yaml = readFileSync(workflow('dashboard'), 'utf8')
+
+		expect(yaml).toContain("'packages/ui/**'")
+	})
+
+	it('leaves actions on their tag by default, without touching the network', async () => {
+		await ci({})
+		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
+
+		expect(yaml).toContain('actions/checkout@v7')
+		expect(runCaptured).not.toHaveBeenCalled()
+	})
+
+	it('--pin resolves actions to a commit sha', async () => {
+		vi.mocked(runCaptured).mockResolvedValue({
+			code: 0,
+			output: 'a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2\trefs/tags/v7',
+		})
+
+		await ci({ pin: true })
+		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
+
+		expect(yaml).toContain('actions/checkout@a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2')
+	})
+
+	it('--pin falls back to the tag and warns when it cannot reach the network', async () => {
+		vi.mocked(runCaptured).mockResolvedValue({ code: 128, output: '' })
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+
+		await ci({ pin: true })
+		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
+
+		expect(yaml).toContain('actions/checkout@v7')
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not resolve'))
 	})
 })

@@ -50,5 +50,10 @@ export function makeManifest(apps: Record<string, AppConfig>): Manifest {
 }
 
 export function makeWorkspace(root: string, apps: Record<string, AppConfig>): Workspace {
-	return { root, manifestPath: join(root, 'spool.json'), manifest: makeManifest(apps) }
+	return {
+		root,
+		manifestPath: join(root, 'spool.json'),
+		manifest: makeManifest(apps),
+		raw: undefined,
+	}
 }

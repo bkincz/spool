@@ -39,6 +39,10 @@ export function hashContent(content: string): string {
 	return createHash('sha256').update(normalised, 'utf8').digest('hex')
 }
 
+export function sameContent(a: string, b: string): boolean {
+	return hashContent(a) === hashContent(b)
+}
+
 /*
  *   PROVENANCE
  ***************************************************************************************************/
@@ -49,7 +53,7 @@ export class Provenance {
 		private readonly root: string,
 		private readonly files: Record<string, string>,
 		private readonly owned: Set<string>
-	) {}
+	) { }
 
 	/** A record spool cannot read is treated as absent, never as a conflict. */
 	static load(root: string): Provenance {
@@ -93,12 +97,77 @@ export class Provenance {
 		const key = this.key(dir, rel)
 		const hash = hashContent(content)
 
-		// Writing it makes it spool's again
 		if (this.owned.delete(key)) this.dirty = true
 		if (this.files[key] === hash) return
 
 		this.files[key] = hash
 		this.dirty = true
+	}
+
+	entries(): [string, string][] {
+		return Object.entries(this.files)
+	}
+
+	tracks(rootRelativePath: string): boolean {
+		const key = rootRelativePath.split(sep).join('/')
+		return key in this.files || this.owned.has(key)
+	}
+
+	forget(dir: string, rel: string): void {
+		const key = this.key(dir, rel)
+		if (this.owned.delete(key)) this.dirty = true
+		if (key in this.files) {
+			delete this.files[key]
+			this.dirty = true
+		}
+	}
+
+	forgetPrefix(prefix: string): void {
+		const base = prefix.split(sep).join('/').replace(/\/$/, '')
+		const matches = (key: string): boolean => key === base || key.startsWith(`${base}/`)
+
+		for (const key of Object.keys(this.files)) {
+			if (!matches(key)) continue
+			delete this.files[key]
+			this.dirty = true
+		}
+		for (const key of [...this.owned]) {
+			if (!matches(key)) continue
+			this.owned.delete(key)
+			this.dirty = true
+		}
+	}
+
+	/**
+	 * Moves a record from `fromRel` to `toRel` under the same `dir`, for files a
+	 * newer spool generates under a different name (For example, the old shell addon's
+	 * src/shell/remote.tsx became src/federation/remote.tsx).
+	 */
+	rename(dir: string, fromRel: string, toRel: string): void {
+		const from = this.key(dir, fromRel)
+		const to = this.key(dir, toRel)
+
+		if (this.owned.delete(from)) {
+			this.owned.add(to)
+			this.dirty = true
+		}
+		if (from in this.files) {
+			this.files[to] = this.files[from]!
+			
+			delete this.files[from]
+			this.dirty = true
+		}
+	}
+
+	/** Drops records for files no longer on disk, so a deleted file stops
+	 * showing up as "generated but untracked" if something re-creates it by hand. */
+	pruneMissing(root: string): void {
+		for (const key of Object.keys(this.files)) {
+			if (!existsSync(join(root, key))) {
+				delete this.files[key]
+				this.dirty = true
+			}
+		}
 	}
 
 	async save(): Promise<void> {

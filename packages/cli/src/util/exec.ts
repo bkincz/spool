@@ -8,25 +8,54 @@ import {
 	type SpawnOptions,
 } from 'node:child_process'
 import spawn from 'cross-spawn'
+import { log } from './logger.js'
 
 /*
  *   PLATFORM
  ***************************************************************************************************/
 const isWindows = process.platform === 'win32'
 
+const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
+
 /*
  *   PROCESS
  ***************************************************************************************************/
+type SimpleStdio = 'inherit' | 'ignore' | 'pipe'
+
+function stdinAndStdout(requested: SpawnOptions['stdio']): [SimpleStdio, SimpleStdio] {
+	const pick = (value: unknown): SimpleStdio =>
+		value === 'ignore' || value === 'pipe' ? value : 'inherit'
+
+	if (Array.isArray(requested)) return [pick(requested[0]), pick(requested[1])]
+	return [pick(requested), pick(requested)]
+}
+
 export function run(cmd: string, args: string[], opts: SpawnOptions = {}): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = spawn(cmd, args, {
-			stdio: 'inherit',
-			...opts,
+		const forward = opts.stdio !== 'ignore'
+		const { stdio, ...rest } = opts
+		const [stdin, stdout] = stdinAndStdout(stdio)
+
+		const child = spawn(cmd, args, { ...rest, stdio: [stdin, stdout, 'pipe'] })
+		let stderr = ''
+
+		child.stderr?.on('data', (chunk: Buffer) => {
+			stderr += chunk.toString()
+			if (forward) process.stderr.write(chunk)
 		})
+
 		child.on('error', reject)
 		child.on('exit', code => {
-			if (code === 0) resolve()
-			else reject(new Error(`"${cmd}" exited with code ${code ?? 'null'}.`))
+			if (code === 0) {
+				resolve()
+				return
+			}
+			const detail = stderr.trim()
+			reject(
+				new Error(
+					`"${cmd}" exited with code ${code ?? 'null'}.${detail ? `\n${detail}` : ''}`
+				)
+			)
 		})
 	})
 }
@@ -53,17 +82,36 @@ export function runCaptured(
 		child.stderr?.on('data', collect)
 
 		child.on('error', (cause: Error) => resolve({ code: null, output: output + cause.message }))
-		child.on('exit', code => resolve({ code, output }))
+		child.on('close', code => resolve({ code, output }))
 	})
+}
+
+let bashAvailable: boolean | undefined
+let warnedAboutShell = false
+
+/** CI runs deploy commands under bash; matching that locally avoids cmd.exe surprises. */
+function hasBash(): boolean {
+	if (bashAvailable === undefined) {
+		const probe = spawnSync('bash', ['-c', 'exit 0'], { stdio: 'ignore' })
+		bashAvailable = !probe.error && probe.status === 0
+	}
+	return bashAvailable
 }
 
 export function runShell(command: string, opts: SpawnOptions = {}): Promise<void> {
 	return new Promise((resolve, reject) => {
-		const child = nodeSpawn(command, {
-			shell: true,
-			stdio: 'inherit',
-			...opts,
-		})
+		const useBash = hasBash()
+		if (!useBash && !warnedAboutShell) {
+			warnedAboutShell = true
+			log.warn(
+				'bash was not found, so this command runs under the platform shell. Quoting, `&&` and env-var syntax may not match CI, which always runs under bash.'
+			)
+		}
+
+		const child = useBash
+			? nodeSpawn('bash', ['-c', command], { stdio: 'inherit', ...opts })
+			: nodeSpawn(command, { shell: true, stdio: 'inherit', ...opts })
+
 		child.on('error', reject)
 		child.on('exit', code => {
 			if (code === 0) resolve()
@@ -72,22 +120,87 @@ export function runShell(command: string, opts: SpawnOptions = {}): Promise<void
 	})
 }
 
-export function spawnProcess(cmd: string, args: string[], opts: SpawnOptions = {}) {
+export function spawnProcess(cmd: string, args: string[], opts: SpawnOptions = {}): ChildProcess {
 	return spawn(cmd, args, {
 		detached: !isWindows,
 		...opts,
+		// A generated watchdog in the app's vite config reads this to self-exit
+		// if this CLI process disappears without a chance to clean up.
+		env: { ...process.env, ...opts.env, SPOOL_PARENT_PID: String(process.pid) },
 	})
 }
 
-export function killTree(child: ChildProcess): void {
+/*
+ *   KILL
+ ***************************************************************************************************/
+export async function killTree(child: ChildProcess, graceMs = 2_000): Promise<boolean> {
+	if (child.pid === undefined) return true
+
+	if (isWindows) {
+		const result = spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], {
+			stdio: 'ignore',
+		})
+
+		return result.status === 0 || result.status === 128
+	}
+
+	return killProcessGroupPosix(child, graceMs)
+}
+
+async function killProcessGroupPosix(child: ChildProcess, graceMs: number): Promise<boolean> {
+	const pid = child.pid!
+	const exited = new Promise<boolean>(resolve => child.once('exit', () => resolve(true)))
+
+	if (!signalGroupOrChild(pid, child, 'SIGTERM')) return true
+
+	if (await Promise.race([exited, delay(graceMs).then(() => false)])) return true
+
+	if (!signalGroupOrChild(pid, child, 'SIGKILL')) return true
+
+	return Promise.race([exited, delay(1_000).then(() => false)])
+}
+
+function signalGroupOrChild(pid: number, child: ChildProcess, signal: NodeJS.Signals): boolean {
+	try {
+		process.kill(-pid, signal)
+		return true
+	} catch {
+		try {
+			child.kill(signal)
+			return true
+		} catch {
+			// ESRCH: already exited.
+			return false
+		}
+	}
+}
+
+export function killTreeSync(child: ChildProcess): void {
 	if (child.pid === undefined) return
+
 	if (isWindows) {
 		spawnSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
-	} else {
+		return
+	}
+
+	if (!signalGroupOrChild(child.pid, child, 'SIGKILL')) return
+}
+
+export function killPid(pid: number): boolean {
+	if (isWindows) {
+		const result = spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' })
+		return result.status === 0 || result.status === 128
+	}
+
+	try {
+		process.kill(-pid, 'SIGKILL')
+		return true
+	} catch {
 		try {
-			process.kill(-child.pid, 'SIGTERM')
+			process.kill(pid, 'SIGKILL')
+			return true
 		} catch {
-			child.kill('SIGTERM')
+			return false
 		}
 	}
 }

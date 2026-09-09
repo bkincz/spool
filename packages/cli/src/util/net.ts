@@ -1,42 +1,14 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { createConnection } from 'node:net'
+import { spawnSync } from 'node:child_process'
 
 /*
- *   PORT READINESS
+ *   PLATFORM
  ***************************************************************************************************/
-function canConnect(port: number, host: string): Promise<boolean> {
-	return new Promise(resolve => {
-		const socket = createConnection({ port, host })
-		socket.once('connect', () => {
-			socket.destroy()
-			resolve(true)
-		})
-		socket.once('error', () => {
-			socket.destroy()
-			resolve(false)
-		})
-	})
-}
+const isWindows = process.platform === 'win32'
 
 const delay = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
-
-/**
- * Resolves once something is listening on the port, or rejects if it never
- * comes up within the timeout.
- */
-export async function waitForPort(
-	port: number,
-	{ host = 'localhost', timeoutMs = 20_000, intervalMs = 200 } = {}
-): Promise<void> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		if (await canConnect(port, host)) return
-		await delay(intervalMs)
-	}
-	throw new Error(`Timed out waiting for port ${port} after ${timeoutMs / 1000}s.`)
-}
 
 /*
  *   MANIFEST READINESS
@@ -52,6 +24,13 @@ async function canFetch(url: string): Promise<boolean> {
 	}
 }
 
+export interface WaitForManifestOptions {
+	timeoutMs?: number
+	intervalMs?: number
+	/** Aborts the poll early, e.g. once a sibling process has already died. */
+	signal?: AbortSignal
+}
+
 /**
  * Resolves once the URL responds with a 2xx, or rejects if it never does within
  * the timeout. A listening port is not enough: a dev server can accept
@@ -60,12 +39,68 @@ async function canFetch(url: string): Promise<boolean> {
  */
 export async function waitForManifest(
 	url: string,
-	{ timeoutMs = 20_000, intervalMs = 200 } = {}
+	{ timeoutMs = 20_000, intervalMs = 200, signal }: WaitForManifestOptions = {}
 ): Promise<void> {
 	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
+		if (signal?.aborted) throw new Error('Aborted: a sibling process stopped first.')
 		if (await canFetch(url)) return
 		await delay(intervalMs)
 	}
 	throw new Error(`Timed out waiting for ${url} after ${timeoutMs / 1000}s.`)
+}
+
+/*
+ *   PORT OWNERSHIP
+ ***************************************************************************************************/
+export interface PortOwner {
+	pid: number
+	command?: string
+}
+
+export function parseNetstatOwner(output: string, port: number): PortOwner | undefined {
+	const needle = `:${port}`
+
+	for (const line of output.split('\n')) {
+		const parts = line.trim().split(/\s+/)
+		if (parts.length < 4 || parts[0] !== 'TCP' || parts[3] !== 'LISTENING') continue
+
+		const local = parts[1]!
+
+		if (!local.endsWith(needle)) continue
+
+		const pid = Number(parts[parts.length - 1])
+		if (Number.isInteger(pid)) return { pid }
+	}
+
+	return undefined
+}
+
+/** Parses `lsof -iTCP:<port> -sTCP:LISTEN` output; exported so tests can feed it fixture text directly. */
+export function parseLsofOwner(output: string): PortOwner | undefined {
+	const line = output
+		.split('\n')
+		.slice(1)
+		.find(entry => entry.trim())
+
+	if (!line) return undefined
+
+	const parts = line.trim().split(/\s+/)
+	const pid = Number(parts[1])
+	if (!Number.isInteger(pid)) return undefined
+
+	const command = parts[0]
+	return command === undefined ? { pid } : { pid, command }
+}
+
+export async function portOwner(port: number): Promise<PortOwner | undefined> {
+	if (isWindows) {
+		const result = spawnSync('netstat', ['-ano'], { encoding: 'utf8' })
+		return result.status === 0 ? parseNetstatOwner(result.stdout, port) : undefined
+	}
+
+	const result = spawnSync('lsof', [`-iTCP:${port}`, '-sTCP:LISTEN', '-P', '-n'], {
+		encoding: 'utf8',
+	})
+	return result.status === 0 ? parseLsofOwner(result.stdout) : undefined
 }

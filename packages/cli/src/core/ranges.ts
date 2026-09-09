@@ -43,10 +43,20 @@ export function resolveRanges(ws: Workspace): Map<string, RangeInfo> {
 	return resolved
 }
 
+/*
+ * A path-relative override (link:/file:/portal:) names somewhere specific to
+ * whoever wrote it, so a lone one is never propagated as the value every
+ * other package.json gets set to. workspace:/catalog: are protocol-only and
+ * mean the same thing for everyone in the repo, so those are fair game once
+ * every package that declares the dep already agrees on one.
+ */
+const PATH_OVERRIDE = /^(link|file|portal):/
+
 function unanimous(sources: Map<string, string[]>): string | undefined {
 	if (sources.size !== 1) return undefined
 
-	return [...sources.keys()][0]
+	const [range] = sources.keys()
+	return range !== undefined && !PATH_OVERRIDE.test(range) ? range : undefined
 }
 
 function spoolRanges(ws: Workspace): Map<string, string> {

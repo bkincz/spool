@@ -1,11 +1,18 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import pc from 'picocolors'
 import { requireWorkspace, saveManifest, type Workspace } from '../core/workspace.js'
 import { MANIFEST_FILE } from '../core/config.js'
-import { diagnose, diagnoseRemotes, type DepWrite, type Diagnostic } from '../core/doctor.js'
+import {
+	diagnose,
+	diagnosePorts,
+	diagnoseRemotes,
+	type DepWrite,
+	type Diagnostic,
+} from '../core/doctor.js'
 import { dependencyHome, editJsonFile } from '../core/packages.js'
 import { ROOT_LABEL } from '../core/ranges.js'
 import { log } from '../util/logger.js'
@@ -18,6 +25,7 @@ export interface DoctorOptions {
 	env?: string
 	fix?: boolean
 	dryRun?: boolean
+	json?: boolean
 }
 
 export async function doctor(opts: DoctorOptions = {}): Promise<void> {
@@ -25,15 +33,25 @@ export async function doctor(opts: DoctorOptions = {}): Promise<void> {
 	let issues = diagnose(ws)
 
 	if (opts.fix && issues.some(issue => issue.fix)) {
-		const applied = await applyFixes(ws, issues, opts.dryRun ?? false)
+		const applied = await applyFixes(ws, issues, opts.dryRun ?? false, opts.json ?? false)
 
 		if (applied && !opts.dryRun) issues = diagnose(ws)
 	}
+
+	issues.push(...(await diagnosePorts(ws)))
 
 	if (opts.remote) {
 		// Builds read SPOOL_ENV when --env is absent, so doctor probes the same urls.
 		const env = (opts.env ?? process.env.SPOOL_ENV) || undefined
 		issues.push(...(await diagnoseRemotes(ws, env)))
+	}
+
+	const errors = issues.filter(i => i.level === 'error').length
+	if (errors) process.exitCode = 1
+
+	if (opts.json) {
+		log.plain(JSON.stringify({ problems: issues }, null, 2))
+		return
 	}
 
 	if (!issues.length) {
@@ -47,7 +65,6 @@ export async function doctor(opts: DoctorOptions = {}): Promise<void> {
 		else log.warn(`${where}${d.message}`)
 	}
 
-	const errors = issues.filter(i => i.level === 'error').length
 	log.plain('')
 	log.info(`${errors} error(s), ${issues.length - errors} warning(s)`)
 
@@ -55,14 +72,17 @@ export async function doctor(opts: DoctorOptions = {}): Promise<void> {
 	if (fixable && !opts.fix) {
 		log.step(`${fixable} of these can be fixed automatically: rerun with --fix.`)
 	}
-
-	if (errors) process.exitCode = 1
 }
 
 /*
  *   FIXES
  ***************************************************************************************************/
-async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean): Promise<number> {
+async function applyFixes(
+	ws: Workspace,
+	issues: Diagnostic[],
+	dryRun: boolean,
+	quiet: boolean
+): Promise<number> {
 	const shares = new Set<string>()
 	const byApp = new Map<string, DepWrite[]>()
 
@@ -77,12 +97,15 @@ async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean):
 	}
 
 	const verb = dryRun ? 'would update' : 'updated'
+	const step = (msg: string): void => {
+		if (!quiet) log.step(msg)
+	}
 	let applied = 0
 
 	const added = [...shares].filter(dep => !ws.manifest.shared.includes(dep))
 	if (added.length) {
 		ws.manifest.shared = [...ws.manifest.shared, ...added]
-		log.step(`${verb} ${MANIFEST_FILE} (shared += ${added.join(', ')})`)
+		step(`${verb} ${MANIFEST_FILE} (shared += ${added.join(', ')})`)
 
 		if (!dryRun) await saveManifest(ws)
 
@@ -112,7 +135,7 @@ async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean):
 			{ write: !dryRun, root: ws.root }
 		)
 		if (changes.length) {
-			log.step(`${name}: ${verb} package.json (${changes.join(', ')})`)
+			step(`${name}: ${verb} package.json (${changes.join(', ')})`)
 			applied += changes.length
 		}
 	}
@@ -120,11 +143,11 @@ async function applyFixes(ws: Workspace, issues: Diagnostic[], dryRun: boolean):
 	if (!applied) return 0
 
 	if (dryRun) {
-		log.step(`${applied} change(s) pending. Rerun without --dry-run to apply.`)
+		step(`${applied} change(s) pending. Rerun without --dry-run to apply.`)
 		return applied
 	}
 
-	log.step(`Review the changes with git, then run \`${ws.manifest.packageManager} install\`.`)
+	step(`Review the changes with git, then run \`${ws.manifest.packageManager} install\`.`)
 	return applied
 }
 
@@ -132,6 +155,8 @@ function packageDir(ws: Workspace, name: string): string | undefined {
 	if (name === ROOT_LABEL) return ws.root
 
 	const app = ws.manifest.apps[name]
+	if (app) return join(ws.root, app.path)
 
-	return app ? join(ws.root, app.path) : undefined
+	const candidate = join(ws.root, name)
+	return existsSync(candidate) ? candidate : undefined
 }

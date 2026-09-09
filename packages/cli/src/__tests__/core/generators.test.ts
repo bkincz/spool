@@ -2,11 +2,13 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect } from 'vitest'
-import { workspaceFiles, appFiles, hostWiringFiles } from '../../core/generators.js'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { workspaceFiles, appFiles, headersFile, hostWiringFiles } from '../../core/generators.js'
 import { ciWorkflows } from '../../core/templates/workflows.js'
 import { NO_EXTRAS } from '../../core/templates/index.js'
 import { parseManifest, type Manifest } from '../../core/config.js'
-import { host, remote, makeManifest } from '../helpers.js'
+import { host, remote, makeManifest, freshDir, removeDir } from '../helpers.js'
 
 /*
  *   FIXTURES
@@ -26,6 +28,7 @@ describe('workspaceFiles', () => {
 	it('generates the expected root files', () => {
 		expect(Object.keys(files).sort()).toEqual(
 			[
+				'.gitattributes',
 				'.gitignore',
 				'.prettierignore',
 				'.prettierrc',
@@ -39,6 +42,20 @@ describe('workspaceFiles', () => {
 				'tsconfig.json',
 			].sort()
 		)
+	})
+
+	it('ignores real .env files but keeps a checked-in .env.example', () => {
+		expect(files['.gitignore']).toContain('.env\n')
+		expect(files['.gitignore']).toContain('.env.*\n')
+		expect(files['.gitignore']).toContain('!.env.example')
+	})
+
+	it('ignores spool types output, since spool types regenerates it on every run', () => {
+		expect(files['.gitignore']).toContain('.spool/')
+	})
+
+	it('normalises line endings for anyone cloning on Windows', () => {
+		expect(files['.gitattributes']).toBe('* text=auto eol=lf\n')
 	})
 
 	it('ships the runtime helper that reads spool.json at config load time', () => {
@@ -162,6 +179,7 @@ describe('appFiles (host)', () => {
 			[
 				'index.html',
 				'package.json',
+				'public/_headers',
 				'src/app/app.module.css',
 				'src/app/app.tsx',
 				'src/main.tsx',
@@ -181,8 +199,11 @@ describe('appFiles (host)', () => {
 		expect(files['vite.config.ts']).not.toContain('remotes:')
 	})
 
-	it('does not ship CORS headers, since nothing fetches a host cross-origin', () => {
-		expect(files['public/_headers']).toBeUndefined()
+	it('ships the CSP and nosniff, but no CORS, since nothing fetches a host cross-origin', () => {
+		const headers = files['public/_headers']!
+		expect(headers).toContain('X-Content-Type-Options: nosniff')
+		expect(headers).toContain("Content-Security-Policy: frame-ancestors 'self'")
+		expect(headers).not.toContain('Access-Control-Allow-Origin')
 	})
 
 	it('lazy-imports each remote in app.tsx', () => {
@@ -228,8 +249,18 @@ describe('appFiles (remote)', () => {
 		expect(files['src/remotes.d.ts']).toBeUndefined()
 	})
 
-	it('ships CORS headers so deployed hosts can fetch it cross-origin', () => {
-		expect(files['public/_headers']).toContain('Access-Control-Allow-Origin: *')
+	it('ships CORS only on the federation paths, and caching on the right ones', () => {
+		const headers = files['public/_headers']!
+		expect(headers).toContain(
+			'/mf-manifest.json\n  Access-Control-Allow-Origin: *\n  Cache-Control: no-cache'
+		)
+		expect(headers).toContain(
+			'/remoteEntry.js\n  Access-Control-Allow-Origin: *\n  Cache-Control: no-cache'
+		)
+		expect(headers).toContain(
+			'/assets/*\n  Access-Control-Allow-Origin: *\n  Cache-Control: public, max-age=31536000, immutable'
+		)
+		expect(headers).toContain('/*\n  X-Content-Type-Options: nosniff')
 	})
 
 	it('passes the vite command through so deployed urls only apply to builds', () => {
@@ -242,6 +273,66 @@ describe('appFiles (remote)', () => {
 		expect(pkg.devDependencies.vite).toBe('^8.0.0')
 		expect(pkg.devDependencies['@vitejs/plugin-react']).toBe('^6.0.0')
 		expect(pkg.devDependencies['@module-federation/vite']).toBe('^1.16.0')
+	})
+})
+
+/*
+ *   HEADERS
+ ***************************************************************************************************/
+describe('headersFile', () => {
+	it('defaults frame-ancestors to self', () => {
+		expect(headersFile('shell', host())).toContain("frame-ancestors 'self'")
+	})
+
+	it('quotes the self and none tokens, and writes an origin as-is', () => {
+		const value = headersFile(
+			'shell',
+			host({ frameAncestors: ['self', 'none', 'https://a.test'] })
+		)
+		expect(value).toContain("frame-ancestors 'self' 'none' https://a.test")
+	})
+
+	it('appends the app’s own headers to the catch-all block', () => {
+		const value = headersFile('shell', host({ headers: { 'X-Frame-Options': 'DENY' } }))
+		expect(value).toContain('X-Frame-Options: DENY')
+	})
+
+	it('never adds CORS to a host, only to a remote', () => {
+		expect(headersFile('shell', host())).not.toContain('Access-Control-Allow-Origin')
+		expect(headersFile('dashboard', remote())).toContain('Access-Control-Allow-Origin: *')
+	})
+})
+
+/*
+ *   TYPED EXPOSES
+ ***************************************************************************************************/
+describe('remotes.d.ts: typed vs fallback', () => {
+	it('falls back to the contract typing and a spool-types hint when nothing was emitted', () => {
+		const dir = freshDir('spool-types-fallback-')
+		const m = manifest()
+		const typings = appFiles(m, 'shell', m.apps.shell!, NO_EXTRAS, dir)['src/remotes.d.ts']!
+
+		expect(typings).toContain('Run `spool types`')
+		expect(typings).toContain('const Component: React.ComponentType')
+		removeDir(dir)
+	})
+
+	it('types a remote from its real export once spool types has run', () => {
+		const dir = freshDir('spool-types-typed-')
+		const declDir = join(dir, '.spool', 'types', 'dashboard', 'apps', 'dashboard', 'src', 'app')
+		mkdirSync(declDir, { recursive: true })
+		writeFileSync(
+			join(declDir, 'app.d.ts'),
+			'declare const Component: () => null;\nexport default Component;\n'
+		)
+
+		const m = manifest()
+		const typings = appFiles(m, 'shell', m.apps.shell!, NO_EXTRAS, dir)['src/remotes.d.ts']!
+
+		expect(typings).toContain('Typed by `spool types`')
+		expect(typings).toContain('typeof import(')
+		expect(typings).not.toContain('React.ComponentType')
+		removeDir(dir)
 	})
 })
 
@@ -283,7 +374,8 @@ describe('hostWiringFiles', () => {
 		})
 		const typings = hostWiringFiles(m, m.apps.shell!)['src/remotes.d.ts']!
 		expect(typings).toBe(
-			'declare module "dashboard/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n'
+			"// Run `spool types` to type this from the remote's real export.\n" +
+				'declare module "dashboard/App" {\n  const Component: React.ComponentType;\n  export default Component;\n}\n'
 		)
 	})
 })
@@ -350,7 +442,9 @@ describe('appFiles (react host with a svelte remote)', () => {
 	it('types each remote by its contract', () => {
 		const typings = files['src/remotes.d.ts']!
 		expect(typings).toContain('const Component: React.ComponentType')
-		expect(typings).toContain('const mount: (target: HTMLElement) => () => void')
+		expect(typings).toContain(
+			'const mount: (target: HTMLElement, props?: Record<string, unknown>) => () => void'
+		)
 	})
 
 	it('needs no svelte deps, since mount-contract remotes are self-contained', () => {
@@ -485,7 +579,9 @@ describe('appFiles (vue host with mixed remotes)', () => {
 	it('types each remote by its contract', () => {
 		const typings = files['src/remotes.d.ts']!
 		expect(typings).toContain('const Component: React.ComponentType')
-		expect(typings).toContain('const mount: (target: HTMLElement) => () => void')
+		expect(typings).toContain(
+			'const mount: (target: HTMLElement, props?: Record<string, unknown>) => () => void'
+		)
 	})
 })
 
@@ -662,17 +758,17 @@ describe('ciWorkflows', () => {
 
 	it('path-filters to the app folder plus the workspace-level files', () => {
 		const yml = files['.github/workflows/deploy-dashboard.yml']!
-		expect(yml).toContain("'apps/dashboard/**'")
-		expect(yml).toContain("'spool.json'")
-		expect(yml).toContain("'spool.vite.ts'")
-		expect(yml).toContain("'pnpm-lock.yaml'")
-		expect(yml).not.toContain("'apps/shell/**'")
+		expect(yml).toContain('"apps/dashboard/**"')
+		expect(yml).toContain('"spool.json"')
+		expect(yml).toContain('"spool.vite.ts"')
+		expect(yml).toContain('"pnpm-lock.yaml"')
+		expect(yml).not.toContain('"apps/shell/**"')
 	})
 
 	it('bakes the deploy command in and builds in the app folder', () => {
 		const yml = files['.github/workflows/deploy-dashboard.yml']!
 		expect(yml).toContain('wrangler pages deploy dist --project-name=dash')
-		expect(yml).toContain('working-directory: apps/dashboard')
+		expect(yml).toContain('working-directory: "apps/dashboard"')
 		expect(yml).toContain('pnpm run build')
 	})
 
@@ -689,7 +785,7 @@ describe('ciWorkflows', () => {
 			})
 		)['.github/workflows/deploy-dash.yml']!
 		expect(npm).toContain('npm ci')
-		expect(npm).toContain("'package-lock.json'")
+		expect(npm).toContain('"package-lock.json"')
 		expect(npm).not.toContain('pnpm/action-setup')
 
 		const pnpm = files['.github/workflows/deploy-dashboard.yml']!
@@ -710,5 +806,14 @@ describe('generated content', () => {
 			...Object.values(appFiles(m, 'dashboard', m.apps.dashboard!)),
 		].join('\n')
 		expect(all).not.toContain('—')
+	})
+})
+
+describe('headersFile with an edge-owned frame-ancestors', () => {
+	it('leaves the CSP out and says who sets it', () => {
+		const value = headersFile('embed', host({ frameAncestors: ['edge'] }))
+		expect(value).not.toContain('Content-Security-Policy')
+		expect(value).toContain('set by the edge')
+		expect(value).toContain('X-Content-Type-Options: nosniff')
 	})
 })

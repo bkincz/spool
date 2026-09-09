@@ -48,6 +48,8 @@ export const TOOLCHAIN = {
 	'@vitejs/plugin-vue': '^6.0.0',
 	'@types/node': '^26.0.0',
 	'@module-federation/vite': '^1.16.0',
+	// Exact on purpose: matches the runtime @module-federation/vite 1.16 bundles, so one copy loads.
+	'@module-federation/runtime': '2.7.0',
 	'@vitejs/plugin-react': '^6.0.0',
 	typescript: '^6.0.3',
 	vite: '^8.0.0',
@@ -184,10 +186,16 @@ export function appDependencies(
 	for (const [dep, range] of Object.entries(SHARED_EXTRAS)) {
 		if (sharedPackages.has(dep)) dependencies[dep] = range
 	}
+
+	if (m.addons.includes('federation') && (app.type === 'host' || app.remotes.length > 0)) {
+		dependencies['@module-federation/runtime'] = TOOLCHAIN['@module-federation/runtime']
+	}
+
 	if (m.addons.includes('sentry')) {
 		dependencies[SENTRY_SDK[app.framework]] = SENTRY_VERSION
 		devDependencies['@sentry/vite-plugin'] = SENTRY_VITE_PLUGIN_VERSION
 	}
+	
 	if (m.addons.includes('test')) {
 		Object.assign(devDependencies, TEST_DEPS, TEST_FRAMEWORK_DEPS[app.framework])
 	}

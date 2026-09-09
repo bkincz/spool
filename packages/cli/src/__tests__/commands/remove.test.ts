@@ -2,11 +2,12 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { create } from '../../commands/create.js'
 import { add } from '../../commands/add.js'
 import { remove } from '../../commands/remove.js'
+import { upgrade } from '../../commands/upgrade.js'
 import * as p from '@clack/prompts'
 import { freshDir, removeDir } from '../helpers.js'
 
@@ -28,7 +29,7 @@ let cwd: string
 beforeEach(async () => {
 	dir = freshDir('spool-remove-')
 	cwd = process.cwd()
-	vi.spyOn(console, 'log').mockImplementation(() => {})
+	vi.spyOn(console, 'log').mockImplementation(() => { })
 	await create(dir, {
 		name: 'acme',
 		pm: 'pnpm',
@@ -114,7 +115,84 @@ describe('remove', () => {
 		m.apps.dashboard.path = '../outside'
 		writeFileSync(join(dir, 'spool.json'), JSON.stringify(m))
 
-		await expect(remove('dashboard', { files: true })).rejects.toThrow('outside the workspace')
+		await expect(remove('dashboard', { files: true })).rejects.toThrow('invalid path')
+	})
+
+	it('unwires a remote from another remote that consumes it, not just from hosts', async () => {
+		const m = manifest()
+		m.apps.widget = {
+			type: 'remote',
+			framework: 'react',
+			path: 'apps/widget',
+			port: 5199,
+			remotes: [],
+			exposes: { './App': './src/app/app.tsx' },
+		}
+		m.apps.dashboard.remotes = ['widget']
+		writeFileSync(join(dir, 'spool.json'), JSON.stringify(m))
+		mkdirSync(join(dir, 'apps/widget/src/app'), { recursive: true })
+		writeFileSync(join(dir, 'apps/widget/src/app/app.tsx'), 'export default function App() {}')
+
+		await remove('widget', {})
+
+		expect(manifest().apps.dashboard.remotes).toEqual([])
+	})
+})
+
+/*
+ *   REMOVE: A REMOTE THAT CONSUMES ANOTHER REMOTE
+ ***************************************************************************************************/
+describe('remove: a remote consuming another remote', () => {
+	let chainDir: string
+	let chainCwd: string
+
+	beforeEach(async () => {
+		chainDir = freshDir('spool-remove-chain-')
+		chainCwd = process.cwd()
+		vi.spyOn(console, 'log').mockImplementation(() => { })
+
+		await create(chainDir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard, widget',
+			addons: 'federation',
+			install: false,
+		})
+		process.chdir(chainDir)
+
+		const m = JSON.parse(readFileSync(join(chainDir, 'spool.json'), 'utf8'))
+		m.apps.dashboard.remotes = ['widget']
+		writeFileSync(join(chainDir, 'spool.json'), JSON.stringify(m))
+		await upgrade({ force: true })
+	})
+
+	afterEach(() => {
+		process.chdir(chainCwd)
+		removeDir(chainDir)
+	})
+
+	it('unwires the remote from its remote consumer', async () => {
+		await remove('widget', {})
+
+		const m = JSON.parse(readFileSync(join(chainDir, 'spool.json'), 'utf8'))
+		expect(m.apps.dashboard.remotes).toEqual([])
+	})
+
+	it('regenerates the consumer’s registry instead of leaving a stale one', async () => {
+		const before = readFileSync(
+			join(chainDir, 'apps/dashboard/src/federation/remotes.ts'),
+			'utf8'
+		)
+		expect(before).toContain('widget')
+
+		await remove('widget', {})
+
+		const after = readFileSync(
+			join(chainDir, 'apps/dashboard/src/federation/remotes.ts'),
+			'utf8'
+		)
+		expect(after).not.toContain('widget')
 	})
 })
 

@@ -23,7 +23,19 @@ function navigationBarrel(app: AppConfig): string {
 }
 
 function federationBarrel(app: AppConfig): string {
-	return `${remoteExport(app.framework)}\nexport { remotes, type RemoteEntry } from "./remotes";\n`
+	return `import { getInstance, registerPlugins } from "@module-federation/runtime";
+import { applyRemoteOverrides, remoteOverridesPlugin } from "./overrides";
+
+// Only with a live federation runtime. Tests and plain vite builds have none.
+if (getInstance()) {
+  registerPlugins([remoteOverridesPlugin]);
+  applyRemoteOverrides();
+}
+
+${remoteExport(app.framework)}
+export { remotes, type RemoteEntry, preloadRemote } from "./remotes";
+export { setRemoteOverride, listRemoteOverrides } from "./overrides";
+`
 }
 
 function bindingExport(framework: Framework): string {
@@ -47,6 +59,7 @@ export function federationFiles(m: Manifest, host: AppConfig): FileMap {
 	return {
 		[FEDERATION_REMOTES_FILE]: remotesRegistry(refs),
 		[`src/federation/${primitiveFile}`]: primitive,
+		'src/federation/overrides.ts': overridesFile(m.overrides ?? false),
 		'src/federation/index.ts': federationBarrel(host),
 	}
 }
@@ -71,6 +84,90 @@ export function remotesRegistry(refs: RemoteRef[]): string {
 export const remotes: Record<string, RemoteEntry> = {
 ${entries.join('\n')}
 };
+
+/** Fetches a remote before it is mounted, e.g. on route hover. Errors are
+ * swallowed; the real mount attempt is what surfaces them. */
+export function preloadRemote(name: string): Promise<void> {
+  return (remotes[name]?.load() ?? Promise.resolve()).then(
+    () => undefined,
+    () => undefined,
+  );
+}
+`
+}
+
+/** Generated `src/federation/overrides.ts`; see federationNotes for the console API. */
+function overridesFile(enabledInProd: boolean): string {
+	return `/*
+ * Lets a developer swap one remote's entry from the browser console, without
+ * touching the deployed manifest. Never reads the override from the url:
+ * that would let anyone craft a link that swaps in their own remote for
+ * someone else.
+ */
+import { getInstance, type ModuleFederationRuntimePlugin } from "@module-federation/runtime";
+
+const STORAGE_PREFIX = "spool:remote:";
+
+// Always on in dev, since it is served straight from source. Preview and a
+// production build are the same artifact, so this is what decides whether
+// either of them accepts a console override; set "overrides": true in
+// spool.json to allow it.
+const enabled = import.meta.env.DEV || ${enabledInProd};
+
+function overrideKey(name: string): string {
+  return STORAGE_PREFIX + name;
+}
+
+/** Point \`name\` at \`url\` (its mf-manifest.json or remoteEntry.js), or clear the override with null. */
+export function setRemoteOverride(name: string, url: string | null): void {
+  if (url) localStorage.setItem(overrideKey(name), url);
+  else localStorage.removeItem(overrideKey(name));
+}
+
+/** Every remote name currently overridden, keyed to the url it points to. */
+export function listRemoteOverrides(): Record<string, string> {
+  const overrides: Record<string, string> = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key?.startsWith(STORAGE_PREFIX)) {
+      overrides[key.slice(STORAGE_PREFIX.length)] = localStorage.getItem(key)!;
+    }
+  }
+  return overrides;
+}
+
+export const remoteOverridesPlugin: ModuleFederationRuntimePlugin = {
+  name: "spool-remote-overrides",
+  beforeRegisterRemote({ remote, origin }) {
+    if (!enabled || !("entry" in remote)) return { remote, origin };
+    const override = localStorage.getItem(overrideKey(remote.name));
+    if (override) remote.entry = override;
+    return { remote, origin };
+  },
+};
+
+// The runtime registers remotes at init, before this file loads, so overrides are re-applied here.
+export function applyRemoteOverrides(): void {
+  if (!enabled) return;
+  const instance = getInstance();
+  if (!instance) return;
+  for (const remote of instance.options.remotes) {
+    if (!("entry" in remote)) continue;
+    const override = localStorage.getItem(overrideKey(remote.name));
+    if (override && remote.entry !== override) {
+      instance.registerRemotes([{ ...remote, entry: override }], { force: true });
+    }
+  }
+}
+
+/** Drops the runtime's cached remote before a caller re-imports it, so a
+ * fixed manifest or entry script is actually re-fetched instead of reusing
+ * the failed load. */
+export function forceReregister(name: string): void {
+  const instance = getInstance();
+  const remote = instance?.options.remotes.find(candidate => candidate.name === name);
+  if (instance && remote) instance.registerRemotes([remote], { force: true });
+}
 `
 }
 
@@ -81,13 +178,17 @@ export function navigationNotes(): string[] {
 }
 
 export function federationNotes(composed: boolean): string[] {
+	const overrides =
+		'federation: run `spool types` to type <Remote> from a remote’s real export, and setRemoteOverride(name, url) from the console to point one remote at another build.'
 	if (composed) {
 		return [
 			'federation: the host starts as a routed shell in src/app. Mount any remote with <Remote name="..." /> from "@/federation".',
+			overrides,
 		]
 	}
 	return [
 		'federation: import { Remote } from "@/federation" to mount a remote by name. Compose them into your host however you like.',
+		overrides,
 	]
 }
 
@@ -215,6 +316,8 @@ function sentryReport(framework: Framework, sentry: boolean): [string, string] {
 	return [
 		`import * as Sentry from "${sdk}";
 `,
+		// "remote": the name a host asked for and could not load. Compare
+		// src/sentry.ts's "mfe" tag, which names the chunk that actually threw.
 		'Sentry.captureException(error, { tags: { remote: name } });',
 	]
 }
@@ -232,12 +335,24 @@ function reactRemote(sentry: boolean): string {
   type ComponentType,
   type ReactNode,
 } from "react";
-${sentryImport}import { remotes } from "./remotes";
+${sentryImport}import { forceReregister } from "./overrides";
+import { remotes } from "./remotes";
 
-const cache: Record<string, ComponentType> = {};
+const cache: Record<string, ComponentType<Record<string, unknown>>> = {};
+const warned = new Set<string>();
 
-export interface RemoteProps {
+function warnUnknownRemote(name: string): void {
+  if (import.meta.env.DEV && !warned.has(name)) {
+    warned.add(name);
+    console.warn('[federation] no remote named "' + name + '" in the registry');
+  }
+}
+
+export interface RemoteProps<P extends Record<string, unknown> = Record<string, never>> {
   name: string;
+  /** Forwarded to the remote: props on a component contract, a second
+   * mount(el, props) argument on a mount contract. */
+  props?: P;
   /** Shown while the remote is still loading. */
   fallback?: ReactNode;
   /** Shown when it fails to load. Call retry to start the load over. */
@@ -245,11 +360,19 @@ export interface RemoteProps {
   onError?: (error: Error, name: string) => void;
 }
 
-export function Remote({ name, fallback = null, renderError = defaultError, onError }: RemoteProps) {
+export function Remote<P extends Record<string, unknown> = Record<string, never>>({
+  name,
+  props,
+  fallback = null,
+  renderError = defaultError,
+  onError,
+}: RemoteProps<P>) {
   const [attempt, setAttempt] = useState(0);
   const retry = useCallback(() => {
-    // React caches the rejected promise inside lazy(), so the wrapper has to
-    // go too or the remote stays broken for the life of the page.
+    // Drop the runtime's cached remote (a failed manifest or entry script)
+    // before re-importing. React also caches the rejected promise inside
+    // lazy(), so the wrapper has to go too or the remote stays broken.
+    forceReregister(name);
     delete cache[name];
     setAttempt((n) => n + 1);
   }, [name]);
@@ -263,7 +386,10 @@ export function Remote({ name, fallback = null, renderError = defaultError, onEr
   );
 
   const entry = remotes[name];
-  if (!entry) return null;
+  if (!entry) {
+    warnUnknownRemote(name);
+    return null;
+  }
 
   return (
     <RemoteBoundary
@@ -274,32 +400,60 @@ export function Remote({ name, fallback = null, renderError = defaultError, onEr
     >
       {entry.contract === "component" ? (
         <Suspense fallback={fallback}>
-          <ComponentRemote name={name} load={entry.load} />
+          <ComponentRemote name={name} load={entry.load} props={props} />
         </Suspense>
       ) : (
-        <MountRemote load={entry.load} />
+        <MountRemote load={entry.load} props={props} fallback={fallback} />
       )}
     </RemoteBoundary>
   );
 }
 
-function ComponentRemote({ name, load }: { name: string; load: () => Promise<unknown> }) {
-  const View = (cache[name] ??= lazy(load as () => Promise<{ default: ComponentType }>));
-  return <View />;
+function ComponentRemote<P extends Record<string, unknown>>({
+  name,
+  load,
+  props,
+}: {
+  name: string;
+  load: () => Promise<unknown>;
+  props?: P;
+}) {
+  const View = (cache[name] ??= lazy(
+    load as () => Promise<{ default: ComponentType<Record<string, unknown>> }>,
+  ));
+  return <View {...(props ?? {})} />;
 }
 
-function MountRemote({ load }: { load: () => Promise<{ default: unknown }> }) {
+function MountRemote<P extends Record<string, unknown>>({
+  load,
+  props,
+  fallback,
+}: {
+  load: () => Promise<{ default: unknown }>;
+  props?: P;
+  fallback?: ReactNode;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   // Rethrown during render, because a boundary cannot catch a rejected promise.
   const [failure, setFailure] = useState<Error | null>(null);
+  const [ready, setReady] = useState(false);
+  // A mount function receives props once. The boundary remounts this component when the name changes.
+  const latestProps = useRef(props);
   if (failure) throw failure;
+
+  useEffect(() => {
+    latestProps.current = props;
+  }, [props]);
 
   useEffect(() => {
     let cleanup: (() => void) | undefined;
     let cancelled = false;
-    void (load() as Promise<{ default: (el: HTMLElement) => () => void }>).then(
+    void (load() as Promise<{ default: (el: HTMLElement, props?: P) => () => void }>).then(
       ({ default: mount }) => {
-        if (!cancelled && ref.current) cleanup = mount(ref.current);
+        if (!cancelled && ref.current) {
+          cleanup = mount(ref.current, latestProps.current);
+          setReady(true);
+        }
       },
       (cause: unknown) => {
         if (!cancelled) setFailure(asError(cause));
@@ -310,7 +464,12 @@ function MountRemote({ load }: { load: () => Promise<{ default: unknown }> }) {
       cleanup?.();
     };
   }, [load]);
-  return <div ref={ref} />;
+  return (
+    <>
+      {ready ? null : fallback}
+      <div ref={ref} />
+    </>
+  );
 }
 
 interface BoundaryProps {
@@ -360,19 +519,25 @@ function svelteRemote(hasComponent: boolean, sentry: boolean): string {
 	const bridgeImport = hasComponent ? `\n  import { mountReact } from "../react-bridge";` : ''
 	const mountExpr = hasComponent
 		? `entry.contract === "component"
-          ? mountReact(m.default as never, el)
-          : (m.default as (el: HTMLElement) => () => void)(el)`
-		: `(m.default as (el: HTMLElement) => () => void)(el)`
+          ? mountReact(m.default as never, el, props)
+          : (m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(el, props)`
+		: `(m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(el, props)`
 	return `<script lang="ts">
   import { onDestroy } from "svelte";${bridgeImport}
-  ${sentryImport}import { remotes } from "./remotes";
+  ${sentryImport}import { forceReregister } from "./overrides";
+  import { remotes } from "./remotes";
 
   export let name: string;
+  /** Forwarded to the remote's mount(el, props). */
+  export let props: Record<string, unknown> | undefined = undefined;
 
   let el: HTMLElement;
   let cleanup: (() => void) | undefined;
   let current: string | undefined;
   let error: Error | undefined;
+  // Bumped on every swap so a load that resolves after a newer one started
+  // (e.g. name changed twice in a row) cannot clobber the current state.
+  let swapToken = 0;
 
   $: if (el && name !== current) void swap(name);
 
@@ -381,12 +546,20 @@ function svelteRemote(hasComponent: boolean, sentry: boolean): string {
     error = undefined;
     cleanup?.();
     cleanup = undefined;
+    const token = ++swapToken;
     const entry = remotes[next];
-    if (!entry) return;
+    if (!entry) {
+      if (import.meta.env.DEV) {
+        console.warn('[federation] no remote named "' + next + '" in the registry');
+      }
+      return;
+    }
     try {
       const m = await entry.load();
+      if (token !== swapToken) return;
       cleanup = ${mountExpr};
     } catch (cause) {
+      if (token !== swapToken) return;
       error = cause instanceof Error ? cause : new Error(String(cause));
       const name = next;
       ${sentryCall}
@@ -395,6 +568,9 @@ function svelteRemote(hasComponent: boolean, sentry: boolean): string {
   }
 
   function retry() {
+    // Drop the runtime's cached remote before re-importing, or a fixed
+    // manifest or entry script never gets re-fetched.
+    forceReregister(name);
     current = undefined;
     void swap(name);
   }
@@ -417,39 +593,61 @@ function vueRemote(hasComponent: boolean, sentry: boolean): string {
 	const bridgeImport = hasComponent ? `\nimport { mountReact } from "../react-bridge";` : ''
 	const mountExpr = hasComponent
 		? `entry.contract === "component"
-        ? mountReact(m.default as never, el.value)
-        : (m.default as (el: HTMLElement) => () => void)(el.value)`
-		: `(m.default as (el: HTMLElement) => () => void)(el.value)`
+        ? mountReact(m.default as never, el.value, attrs.props)
+        : (m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(
+            el.value,
+            attrs.props,
+          )`
+		: `(m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(
+        el.value,
+        attrs.props,
+      )`
 	return `<script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from "vue";${bridgeImport}
-${sentryImport}import { remotes } from "./remotes";
+${sentryImport}import { forceReregister } from "./overrides";
+import { remotes } from "./remotes";
 
-const props = defineProps<{ name: string }>();
+const attrs = defineProps<{ name: string; props?: Record<string, unknown> }>();
 const el = ref<HTMLElement | null>(null);
 const error = ref<Error | null>(null);
 let cleanup: (() => void) | undefined;
+// Bumped on every swap so a load that resolves after a newer one started
+// (e.g. name changed twice in a row) cannot clobber the current state.
+let swapToken = 0;
 
 async function swap(name: string) {
   error.value = null;
   cleanup?.();
   cleanup = undefined;
+  const token = ++swapToken;
   const entry = remotes[name];
-  if (!entry || !el.value) return;
+  if (!entry) {
+    if (import.meta.env.DEV) console.warn('[federation] no remote named "' + name + '" in the registry');
+    return;
+  }
+  if (!el.value) return;
   try {
     const m = await entry.load();
+    if (token !== swapToken) return;
     cleanup = ${mountExpr};
   } catch (cause) {
+    if (token !== swapToken) return;
     error.value = cause instanceof Error ? cause : new Error(String(cause));
     ${sentryCall}
     console.error('remote "' + name + '" failed to load', cause);
   }
 }
 
-const retry = () => void swap(props.name);
+const retry = () => {
+  // Drop the runtime's cached remote before re-importing, or a fixed
+  // manifest or entry script never gets re-fetched.
+  forceReregister(attrs.name);
+  void swap(attrs.name);
+};
 
 onMounted(() => {
-  void swap(props.name);
-  watch(() => props.name, swap);
+  void swap(attrs.name);
+  watch(() => attrs.name, swap);
 });
 onBeforeUnmount(() => cleanup?.());
 </script>

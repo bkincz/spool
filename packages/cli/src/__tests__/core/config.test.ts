@@ -1,7 +1,7 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import {
 	MANIFEST_FILE,
 	parseManifest,
@@ -10,6 +10,7 @@ import {
 	validateName,
 	type AppConfig,
 } from '../../core/config.js'
+import { log } from '../../util/logger.js'
 import { host, remote } from '../helpers.js'
 
 /*
@@ -36,6 +37,7 @@ describe('emptyManifest', () => {
 			shareStrategy: 'loaded-first',
 			addons: [],
 			apps: {},
+			overrides: false,
 		})
 	})
 })
@@ -171,6 +173,198 @@ describe('parseManifest', () => {
 })
 
 /*
+ *   NEW SCHEMA FIELDS
+ ***************************************************************************************************/
+describe('headers, frameAncestors and overrides', () => {
+	it('accepts per-app headers and frameAncestors', () => {
+		const manifest = parseManifest({
+			name: 'acme',
+			apps: {
+				shell: {
+					...host(),
+					headers: { 'X-Frame-Options': 'DENY' },
+					frameAncestors: ['self'],
+				},
+			},
+		})
+		expect(manifest.apps.shell!.headers).toEqual({ 'X-Frame-Options': 'DENY' })
+		expect(manifest.apps.shell!.frameAncestors).toEqual(['self'])
+	})
+
+	it('rejects a non-string header value', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { shell: { ...host(), headers: { 'X-Test': 42 } } },
+			})
+		).toThrow()
+	})
+
+	it('defaults overrides to false and accepts an explicit true', () => {
+		expect(emptyManifest('acme').overrides).toBe(false)
+		expect(parseManifest({ name: 'acme', apps: {}, overrides: true }).overrides).toBe(true)
+	})
+})
+
+/*
+ *   ADDONS
+ ***************************************************************************************************/
+describe('addons', () => {
+	it('accepts every known addon name', () => {
+		const manifest = parseManifest({
+			name: 'acme',
+			apps: {},
+			addons: [
+				'navigation',
+				'federation',
+				'sentry',
+				'test',
+				'lint',
+				'turbo',
+				'state',
+				'ladle',
+				'playwright',
+			],
+		})
+		expect(manifest.addons).toHaveLength(9)
+	})
+
+	it('rejects an unknown addon name', () => {
+		expect(() => parseManifest({ name: 'acme', apps: {}, addons: ['bogus'] })).toThrow()
+	})
+
+	it('normalises the retired "shell" alias into navigation and federation, with one warning', () => {
+		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
+		const manifest = parseManifest({ name: 'acme', apps: {}, addons: ['shell'] })
+
+		expect(manifest.addons).toEqual(['navigation', 'federation'])
+		expect(warn).toHaveBeenCalledTimes(1)
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('shell'))
+	})
+
+	it('does not duplicate navigation/federation already listed alongside "shell"', () => {
+		vi.spyOn(log, 'warn').mockImplementation(() => {})
+		const manifest = parseManifest({ name: 'acme', apps: {}, addons: ['shell', 'federation'] })
+
+		expect(manifest.addons).toEqual(['federation', 'navigation'])
+	})
+})
+
+/*
+ *   PATH CONFINEMENT
+ ***************************************************************************************************/
+describe('app path confinement', () => {
+	it('rejects an absolute path', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { shell: { ...host(), path: '/etc/apps/shell' } } })
+		).toThrow(/invalid path/)
+	})
+
+	it('rejects a path with a ".." segment', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { shell: { ...host(), path: '../outside' } } })
+		).toThrow(/invalid path/)
+	})
+
+	it('rejects a trailing slash', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { shell: { ...host(), path: 'apps/shell/' } } })
+		).toThrow(/invalid path/)
+	})
+
+	it('names the offending app in the message', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { shell: { ...host(), path: '..' } } })
+		).toThrow(/App "shell"/)
+	})
+})
+
+/*
+ *   REMOTES VALIDATION
+ ***************************************************************************************************/
+describe('remotes validation', () => {
+	it('rejects an app that lists itself as a remote', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { shell: host({ remotes: ['shell'] }) } })
+		).toThrow(/lists itself/)
+	})
+
+	it('rejects a remote listed twice', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: {
+					shell: host({ remotes: ['dashboard', 'dashboard'] }),
+					dashboard: remote(),
+				},
+			})
+		).toThrow(/more than once/)
+	})
+
+	it('rejects a remote that is not in the manifest', () => {
+		expect(() =>
+			parseManifest({ name: 'acme', apps: { shell: host({ remotes: ['ghost'] }) } })
+		).toThrow(/not in this workspace/)
+	})
+
+	it('detects and reports a two-app cycle', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: {
+					a: remote({ path: 'apps/a', port: 1, remotes: ['b'] }),
+					b: remote({ path: 'apps/b', port: 2, remotes: ['a'] }),
+				},
+			})
+		).toThrow(/cycle: a -> b -> a/)
+	})
+
+	it('allows a remote that consumes another remote, with no cycle', () => {
+		const manifest = parseManifest({
+			name: 'acme',
+			apps: {
+				shell: host({ remotes: ['dashboard'] }),
+				dashboard: remote({ remotes: ['widget'] }),
+				widget: remote({ path: 'apps/widget', port: 5175 }),
+			},
+		})
+		expect(manifest.apps.dashboard!.remotes).toEqual(['widget'])
+	})
+})
+
+/*
+ *   EXPOSES VALIDATION
+ ***************************************************************************************************/
+describe('exposes validation', () => {
+	it('rejects a key that does not start with "./"', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { dash: { ...remote(), exposes: { App: './src/app/app.tsx' } } },
+			})
+		).toThrow(/must start with/)
+	})
+
+	it('rejects a source that escapes the app folder', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { dash: { ...remote(), exposes: { './App': '../shared/App.tsx' } } },
+			})
+		).toThrow(/must stay inside/)
+	})
+
+	it('rejects an absolute source', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { dash: { ...remote(), exposes: { './App': '/abs/App.tsx' } } },
+			})
+		).toThrow(/must stay inside/)
+	})
+})
+
+/*
  *   VALIDATE NAME
  ***************************************************************************************************/
 describe('validateName', () => {
@@ -213,5 +407,24 @@ describe('AppConfig typing', () => {
 	it('accepts host and remote shapes from the factories', () => {
 		const apps: AppConfig[] = [host(), remote()]
 		expect(apps).toHaveLength(2)
+	})
+})
+
+describe('frameAncestors edge token', () => {
+	it('accepts edge on its own', () => {
+		const manifest = parseManifest({
+			name: 'acme',
+			apps: { shell: { ...host(), frameAncestors: ['edge'] } },
+		})
+		expect(manifest.apps.shell!.frameAncestors).toEqual(['edge'])
+	})
+
+	it('rejects edge mixed with origins', () => {
+		expect(() =>
+			parseManifest({
+				name: 'acme',
+				apps: { shell: { ...host(), frameAncestors: ['edge', 'https://a.test'] } },
+			})
+		).toThrow(/stands alone/)
 	})
 })

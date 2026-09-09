@@ -135,11 +135,20 @@ describe('upgrade', () => {
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('has local changes'))
 	})
 
-	it('regenerates host typings', async () => {
+	it('regenerates host typings with --force', async () => {
 		writeFileSync(join(dir, 'apps/shell/src/remotes.d.ts'), '// stale typings\n')
-		await upgrade({})
+		await upgrade({ force: true })
 
 		expect(read('apps/shell/src/remotes.d.ts')).toContain('dashboard/App')
+	})
+
+	it('leaves edited host typings alone without --force', async () => {
+		writeFileSync(join(dir, 'apps/shell/src/remotes.d.ts'), '// stale typings\n')
+		vi.spyOn(log, 'warn').mockImplementation(() => {})
+
+		await upgrade({})
+
+		expect(read('apps/shell/src/remotes.d.ts')).toBe('// stale typings\n')
 	})
 
 	it('writes nothing with --dry-run', async () => {
@@ -243,13 +252,37 @@ describe('upgrade', () => {
 	it('says how many ranges it left alone', async () => {
 		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
 		const pkg = readJson('apps/dashboard/package.json')
-		pkg.dependencies.react = 'workspace:*'
+		pkg.dependencies.react = 'latest'
 		writeFileSync(join(dir, 'apps/dashboard/package.json'), JSON.stringify(pkg))
 
 		await upgrade({})
 
 		expect(step).toHaveBeenCalledWith(
 			expect.stringContaining('left 1 dependency range(s) alone')
+		)
+	})
+
+	it('leaves a source range alone and does not offer --pin for it', async () => {
+		const step = vi.spyOn(log, 'step').mockImplementation(() => {})
+		const pkg = readJson('apps/dashboard/package.json')
+		pkg.dependencies.react = 'workspace:*'
+		writeFileSync(join(dir, 'apps/dashboard/package.json'), JSON.stringify(pkg))
+
+		await upgrade({})
+
+		expect(readJson('apps/dashboard/package.json').dependencies.react).toBe('workspace:*')
+		expect(step).not.toHaveBeenCalledWith(expect.stringContaining('dependency range(s) alone'))
+	})
+
+	it('keeps a linked dependency even under --pin', async () => {
+		const pkg = readJson('apps/dashboard/package.json')
+		pkg.dependencies.react = 'link:../../vendor/react'
+		writeFileSync(join(dir, 'apps/dashboard/package.json'), JSON.stringify(pkg))
+
+		await upgrade({ pin: true })
+
+		expect(readJson('apps/dashboard/package.json').dependencies.react).toBe(
+			'link:../../vendor/react'
 		)
 	})
 
@@ -351,7 +384,7 @@ describe('upgrade', () => {
 		await upgrade({})
 
 		expect(read('spool.vite.ts')).toBe('// mine, no marker\n')
-		expect(warn).toHaveBeenCalledWith(expect.stringContaining('customized'))
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('may be yours'))
 	})
 
 	it('regenerates an unverified file with --force', async () => {
@@ -363,7 +396,7 @@ describe('upgrade', () => {
 		expect(read('apps/shell/vite.config.ts')).toContain("spoolApp('shell'")
 	})
 
-	it('stops warning about a file it has already conceded', async () => {
+	it('keeps warning about an untracked file until someone decides', async () => {
 		const warn = vi.spyOn(log, 'warn').mockImplementation(() => {})
 		rmSync(join(dir, PROVENANCE_FILE))
 		writeFileSync(join(dir, 'spool.vite.ts'), '// mine, no marker\n')
@@ -372,8 +405,8 @@ describe('upgrade', () => {
 		warn.mockClear()
 		await upgrade({})
 
-		expect(readJson(PROVENANCE_FILE).owned).toContain('spool.vite.ts')
-		expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('customized'))
+		expect(readJson(PROVENANCE_FILE).owned ?? []).not.toContain('spool.vite.ts')
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('may be yours'))
 		expect(read('spool.vite.ts')).toBe('// mine, no marker\n')
 	})
 

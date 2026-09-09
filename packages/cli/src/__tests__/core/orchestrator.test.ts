@@ -5,9 +5,24 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { EventEmitter } from 'node:events'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { devAll, previewAll, buildAll, deployAll } from '../../core/orchestrator.js'
-import { runCaptured, runShell, spawnProcess, killTree } from '../../util/exec.js'
-import { waitForManifest } from '../../util/net.js'
+import {
+	devAll,
+	previewAll,
+	buildAll,
+	deployAll,
+	killRunning,
+	promoteApp,
+	rollbackApp,
+} from '../../core/orchestrator.js'
+import { runCaptured, runShell, spawnProcess, killTree, killPid } from '../../util/exec.js'
+import { waitForManifest, portOwner } from '../../util/net.js'
+import { readPidfile, writePidfile, removePidfile } from '../../core/pidfile.js'
+import {
+	readDeployStore,
+	recordDeploy,
+	readBuiltSharedEntries,
+	sharedConflicts,
+} from '../../core/deploys.js'
 import { log } from '../../util/logger.js'
 import { makeWorkspace, host, remote, freshDir, removeDir } from '../helpers.js'
 
@@ -20,10 +35,27 @@ vi.mock('../../util/exec.js', () => ({
 	runShell: vi.fn(),
 	spawnProcess: vi.fn(),
 	killTree: vi.fn(),
+	killTreeSync: vi.fn(),
+	killPid: vi.fn(),
 }))
 
 vi.mock('../../util/net.js', () => ({
 	waitForManifest: vi.fn().mockResolvedValue(undefined),
+	portOwner: vi.fn().mockResolvedValue(undefined),
+}))
+
+vi.mock('../../core/pidfile.js', () => ({
+	writePidfile: vi.fn(),
+	readPidfile: vi.fn().mockReturnValue(undefined),
+	removePidfile: vi.fn(),
+}))
+
+vi.mock('../../core/deploys.js', () => ({
+	readDeployStore: vi.fn().mockReturnValue({}),
+	recordDeploy: vi.fn(),
+	deployHistory: vi.fn().mockReturnValue([]),
+	readBuiltSharedEntries: vi.fn().mockReturnValue([]),
+	sharedConflicts: vi.fn().mockReturnValue([]),
 }))
 
 type FakeStream = EventEmitter & { destroy: ReturnType<typeof vi.fn> }
@@ -58,6 +90,13 @@ beforeEach(() => {
 		children.push(child)
 		return child as never
 	})
+	vi.mocked(killTree).mockResolvedValue(true)
+	vi.mocked(killPid).mockReturnValue(true)
+	vi.mocked(readDeployStore).mockReturnValue({})
+	vi.mocked(recordDeploy).mockImplementation(() => {})
+	vi.mocked(readBuiltSharedEntries).mockReturnValue([])
+	vi.mocked(sharedConflicts).mockReturnValue([])
+	vi.mocked(readPidfile).mockReturnValue(undefined)
 	// Guard: signal handlers exit directly; keep the test runner alive.
 	vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
 	vi.spyOn(log, 'step').mockImplementation(() => {})
@@ -65,17 +104,23 @@ beforeEach(() => {
 	vi.spyOn(log, 'warn').mockImplementation(() => {})
 	vi.spyOn(log, 'error').mockImplementation(() => {})
 	vi.spyOn(log, 'plain').mockImplementation(() => {})
+	vi.spyOn(log, 'info').mockImplementation(() => {})
 })
 
 /** Feeds the vite startup lines that mark an app as ready. */
 function emitReady(child: FakeChild, port: number): void {
 	child.stdout.emit('data', Buffer.from('  VITE v8.1.3  ready in 500 ms\n'))
-	child.stdout.emit('data', Buffer.from(`  ➜  Local:   http://localhost:${port}/\n`))
+	child.stdout.emit('data', Buffer.from(`  ➤  Local:   http://localhost:${port}/\n`))
 }
 
 afterEach(() => {
 	process.removeAllListeners('SIGINT')
 	process.removeAllListeners('SIGTERM')
+	process.removeAllListeners('SIGHUP')
+	process.removeAllListeners('SIGBREAK')
+	process.removeAllListeners('uncaughtException')
+	process.removeAllListeners('unhandledRejection')
+	process.removeAllListeners('exit')
 	vi.clearAllMocks()
 	vi.restoreAllMocks()
 })
@@ -123,16 +168,52 @@ describe('devAll', () => {
 		expect(children[1]!.stdout.destroy).toHaveBeenCalled()
 	})
 
+	it('treats a signal-killed child (no exit code) as a failure too', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		const running = devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		children[0]!.emit('exit', null)
+
+		await expect(running).rejects.toThrow('killed unexpectedly')
+	})
+
+	it('reports one clear message and stops siblings when a binary is missing', async () => {
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+		const running = devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+		const err = Object.assign(new Error('spawn pnpm ENOENT'), { code: 'ENOENT' })
+		children[0]!.emit('error', err)
+
+		await expect(running).rejects.toThrow('Could not run "pnpm"')
+		expect(killTree).toHaveBeenCalled()
+	})
+
 	it('warns when --only leaves a host without its remotes', async () => {
 		const ws = makeWorkspace('/ws', {
 			shell: host({ remotes: ['dashboard'] }),
 			dashboard: remote(),
 		})
-		void devAll(ws, ['shell'])
+		void devAll(ws, { only: ['shell'] })
 		await vi.waitFor(() =>
 			expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))
 		)
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not selected'))
+	})
+
+	it('warns when a selected remote itself needs an unselected remote', async () => {
+		const ws = makeWorkspace('/ws', {
+			dashboard: remote({ remotes: ['widget'] }),
+			widget: remote({ path: 'apps/widget', port: 5175 }),
+		})
+		void devAll(ws, { only: ['dashboard'] })
+		await vi.waitFor(() =>
+			expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('widget'))
+		)
 	})
 
 	it('only runs the apps named in the only filter', async () => {
@@ -140,7 +221,7 @@ describe('devAll', () => {
 			shell: host({ remotes: ['dashboard'] }),
 			dashboard: remote(),
 		})
-		void devAll(ws, ['dashboard'])
+		void devAll(ws, { only: ['dashboard'] })
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
 	})
 
@@ -169,7 +250,9 @@ describe('devAll', () => {
 
 	it('rejects an unknown app name in the only filter', async () => {
 		const ws = makeWorkspace('/ws', { dashboard: remote() })
-		await expect(devAll(ws, ['ghost'])).rejects.toThrow('Unknown app(s) in --only: ghost')
+		await expect(devAll(ws, { only: ['ghost'] })).rejects.toThrow(
+			'Unknown app(s) in --only: ghost'
+		)
 		expect(spawnProcess).not.toHaveBeenCalled()
 	})
 
@@ -187,6 +270,24 @@ describe('devAll', () => {
 		expect(write).toHaveBeenCalledWith(expect.stringContaining('hello'))
 	})
 
+	it('carries a split line across chunks even after streaming has started', async () => {
+		vi.useFakeTimers()
+		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws)
+
+		await vi.advanceTimersByTimeAsync(15_000)
+		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('not reported ready'))
+
+		children[0]!.stdout.emit('data', Buffer.from('half a li'))
+		children[0]!.stdout.emit('data', Buffer.from('ne\n'))
+
+		const out = write.mock.calls.map(call => String(call[0])).join('')
+		expect(out).toContain('half a line')
+		expect(out).not.toContain('half a li\n')
+		vi.useRealTimers()
+	})
+
 	it('buffers startup noise and prints one summary when every app is ready', async () => {
 		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 		const ws = makeWorkspace('/ws', {
@@ -202,7 +303,7 @@ describe('devAll', () => {
 		emitReady(children[0]!, 5174)
 		emitReady(children[1]!, 5173)
 		// The trailing banner chunk lands inside the grace window and stays buffered.
-		children[1]!.stdout.emit('data', Buffer.from('  ➜  Network: use --host to expose\n'))
+		children[1]!.stdout.emit('data', Buffer.from('  ➤  Network: use --host to expose\n'))
 
 		await vi.waitFor(() =>
 			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('dev servers ready'))
@@ -249,9 +350,9 @@ describe('devAll', () => {
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
 
 		children[0]!.stdout.emit('data', Buffer.from('  VITE v8.1.3  ready in 500 ms\n'))
-		children[0]!.stdout.emit('data', Buffer.from('  ➜  Local:   http://localhost:5174/\n'))
+		children[0]!.stdout.emit('data', Buffer.from('  ➤  Local:   http://localhost:5174/\n'))
 		children[1]!.stdout.emit('data', Buffer.from('  VITE v8.2.0  ready in 400 ms\n'))
-		children[1]!.stdout.emit('data', Buffer.from('  ➜  Local:   http://localhost:5175/\n'))
+		children[1]!.stdout.emit('data', Buffer.from('  ➤  Local:   http://localhost:5175/\n'))
 
 		await vi.waitFor(() =>
 			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('vite 8.1.3'))
@@ -260,7 +361,7 @@ describe('devAll', () => {
 		expect(rows.some(row => row.includes('vite 8.2.0'))).toBe(true)
 	})
 
-	it('anchors the panel with a scroll region on a real terminal', async () => {
+	it('anchors the panel with a scroll region on a real terminal, without erasing the screen', async () => {
 		const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
 		const stdout = process.stdout as unknown as {
 			isTTY: boolean
@@ -278,10 +379,12 @@ describe('devAll', () => {
 			emitReady(children[0]!, 5174)
 			// The panel paints at the top and confines scrolling below itself.
 			await vi.waitFor(() =>
-				expect(write).toHaveBeenCalledWith(expect.stringContaining('\x1b[2J\x1b[H'))
+				expect(write).toHaveBeenCalledWith(expect.stringContaining('\x1b[H'))
 			)
 			const painted = write.mock.calls.map(call => String(call[0])).join('')
 			expect(painted).toContain('dev servers ready')
+			// A full screen clear would drop whatever was on screen before the panel.
+			expect(painted).not.toContain('\x1b[2J')
 			// The scroll region's bottom edge is the terminal's row count.
 			expect(painted).toContain(';40r')
 
@@ -349,7 +452,7 @@ describe('devAll', () => {
 		children[0]!.stdout.emit('data', Buffer.from('  VITE v8.1.3  re'))
 		children[0]!.stdout.emit(
 			'data',
-			Buffer.from('ady in 500 ms\n  ➜  Local:   http://localhost:5174/\n')
+			Buffer.from('ady in 500 ms\n  ➤  Local:   http://localhost:5174/\n')
 		)
 
 		await vi.waitFor(() =>
@@ -386,6 +489,193 @@ describe('devAll', () => {
 		)
 	})
 
+	it('passes a --timeout seconds value through to the manifest wait', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws, { timeoutSeconds: 5 })
+		await vi.waitFor(() => expect(waitForManifest).toHaveBeenCalled())
+		const opts = vi.mocked(waitForManifest).mock.calls[0]![1] as { timeoutMs?: number }
+		expect(opts.timeoutMs).toBe(5_000)
+	})
+
+	it('aborts the manifest poll instead of waiting out the timeout when a sibling dies', async () => {
+		let capturedSignal: AbortSignal | undefined
+		vi.mocked(waitForManifest).mockImplementation((_url, opts) => {
+			capturedSignal = (opts as { signal?: AbortSignal }).signal
+			return new Promise((_, reject) => {
+				capturedSignal?.addEventListener('abort', () => reject(new Error('aborted')))
+			})
+		})
+		const ws = makeWorkspace('/ws', {
+			shell: host({ remotes: ['dashboard'] }),
+			dashboard: remote(),
+		})
+		const running = devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		children[0]!.emit('exit', 1)
+
+		await expect(running).rejects.toThrow('stopped unexpectedly')
+		expect(capturedSignal?.aborted).toBe(true)
+	})
+
+	/*
+	 *   PIDFILE
+	 ***************************************************************************************************/
+	it('writes a pidfile as children start and removes it on shutdown', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws)
+		await vi.waitFor(() => expect(writePidfile).toHaveBeenCalled())
+
+		const [, mode, tracked] = vi.mocked(writePidfile).mock.calls.at(-1)!
+		expect(mode).toBe('dev')
+		expect(tracked).toEqual([{ name: 'dashboard', port: 5174, pid: children[0]!.pid }])
+
+		process.emit('SIGINT')
+		await vi.waitFor(() => expect(removePidfile).toHaveBeenCalledWith(ws, 'dev'))
+	})
+
+	/*
+	 *   SIGNALS
+	 ***************************************************************************************************/
+	it.each(['SIGINT', 'SIGTERM', 'SIGHUP'] as const)('stops every child on %s', async signal => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		process.emit(signal)
+		await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(0))
+		expect(killTree).toHaveBeenCalledWith(children[0])
+	})
+
+	it('exits non-zero when a kill fails on Ctrl+C', async () => {
+		vi.mocked(killTree).mockResolvedValue(false)
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		process.emit('SIGINT')
+		await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(1))
+	})
+
+	it('stops children and exits non-zero on an uncaught exception', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		void devAll(ws)
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+		process.emit('uncaughtException', new Error('boom'))
+		await vi.waitFor(() => expect(process.exit).toHaveBeenCalledWith(1))
+		expect(killTree).toHaveBeenCalledWith(children[0])
+	})
+
+	/*
+	 *   REST
+	 ***************************************************************************************************/
+	describe('--rest built', () => {
+		it('previews an excluded remote from its dist instead of warning', async () => {
+			const root = freshDir('spool-rest-built-')
+			mkdirSync(join(root, 'apps/dashboard/dist'), { recursive: true })
+			const ws = makeWorkspace(root, {
+				shell: host({ remotes: ['dashboard'] }),
+				dashboard: remote(),
+			})
+
+			void devAll(ws, { only: ['shell'], rest: { kind: 'built' } })
+			await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+
+			const calls = vi.mocked(spawnProcess).mock.calls
+			const builtCall = calls.find(call =>
+				(call[2] as { cwd: string }).cwd.includes('dashboard')
+			)!
+			expect(builtCall[1]).toEqual(['run', 'preview'])
+			expect(log.warn).not.toHaveBeenCalledWith(expect.stringContaining('not selected'))
+			removeDir(root)
+		})
+
+		it('fails clearly when the excluded remote has no dist yet', async () => {
+			const root = freshDir('spool-rest-built-missing-')
+			const ws = makeWorkspace(root, {
+				shell: host({ remotes: ['dashboard'] }),
+				dashboard: remote(),
+			})
+
+			await expect(devAll(ws, { only: ['shell'], rest: { kind: 'built' } })).rejects.toThrow(
+				'dist folder'
+			)
+			removeDir(root)
+		})
+	})
+
+	describe('--rest <env>', () => {
+		it('points the selected app at the deployed url via SPOOL_REMOTE_<NAME>', async () => {
+			const ws = makeWorkspace('/ws', {
+				shell: host({ remotes: ['dashboard'] }),
+				dashboard: remote({
+					urls: { staging: 'https://staging.example.com/mf-manifest.json' },
+				}),
+			})
+
+			void devAll(ws, { only: ['shell'], rest: { kind: 'env', env: 'staging' } })
+			await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
+
+			const opts = vi.mocked(spawnProcess).mock.calls[0]![2] as {
+				env?: Record<string, string>
+			}
+			expect(opts.env?.SPOOL_REMOTE_DASHBOARD).toBe(
+				'https://staging.example.com/mf-manifest.json'
+			)
+		})
+
+		it('fails clearly when the env has no url for the excluded remote', async () => {
+			const ws = makeWorkspace('/ws', {
+				shell: host({ remotes: ['dashboard'] }),
+				dashboard: remote(),
+			})
+
+			await expect(
+				devAll(ws, { only: ['shell'], rest: { kind: 'env', env: 'staging' } })
+			).rejects.toThrow('urls.staging')
+		})
+	})
+
+	/*
+	 *   KILL
+	 ***************************************************************************************************/
+	describe('killRunning', () => {
+		it('kills every pid on record and clears the pidfile', async () => {
+			vi.mocked(readPidfile).mockReturnValue({
+				parentPid: 1,
+				startedAt: new Date().toISOString(),
+				children: [{ name: 'dashboard', port: 5174, pid: 4242 }],
+			})
+			const ws = makeWorkspace('/ws', { dashboard: remote() })
+
+			await killRunning(ws, 'dev')
+
+			expect(vi.mocked(killPid).mock.calls[0]?.[0]).toBe(1)
+			expect(killPid).toHaveBeenCalledWith(4242)
+			expect(removePidfile).toHaveBeenCalledWith(ws, 'dev')
+		})
+
+		it('also kills whatever is squatting on a manifest port with no pidfile', async () => {
+			vi.mocked(portOwner).mockResolvedValueOnce({ pid: 7777, command: 'node' })
+			const ws = makeWorkspace('/ws', { dashboard: remote() })
+
+			await killRunning(ws, 'dev')
+
+			expect(killPid).toHaveBeenCalledWith(7777)
+		})
+
+		it('says there is nothing to kill when nothing is running', async () => {
+			const ws = makeWorkspace('/ws', { dashboard: remote() })
+			await killRunning(ws, 'dev')
+			expect(killPid).not.toHaveBeenCalled()
+			expect(log.info).toHaveBeenCalledWith(expect.stringContaining('Nothing to kill'))
+		})
+	})
+
+	/*
+	 *   LADLE
+	 ***************************************************************************************************/
 	/** Writes a packages/ui with a ladle script so the workshop is detected. */
 	function withLadle(root: string): void {
 		mkdirSync(join(root, 'packages/ui'), { recursive: true })
@@ -456,7 +746,7 @@ describe('devAll', () => {
 		removeDir(root)
 	})
 
-	it('leaves the workshop out of a narrowed --only run', async () => {
+	it('still runs the workshop under a narrowed --only run', async () => {
 		const root = freshDir('spool-ladle-only-')
 		withLadle(root)
 		const ws = makeWorkspace(root, {
@@ -464,7 +754,18 @@ describe('devAll', () => {
 			dashboard: remote(),
 		})
 
-		void devAll(ws, ['dashboard'])
+		void devAll(ws, { only: ['dashboard'] })
+		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(2))
+		expect(ladleCall()).toBeDefined()
+		removeDir(root)
+	})
+
+	it('leaves the workshop out when --no-ladle is set', async () => {
+		const root = freshDir('spool-ladle-off-')
+		withLadle(root)
+		const ws = makeWorkspace(root, { dashboard: remote() })
+
+		void devAll(ws, { ladle: false })
 		await vi.waitFor(() => expect(spawnProcess).toHaveBeenCalledTimes(1))
 		expect(ladleCall()).toBeUndefined()
 		removeDir(root)
@@ -505,7 +806,7 @@ describe('previewAll', () => {
 		expect(vi.mocked(spawnProcess).mock.calls[0]![1]).toEqual(['run', 'preview'])
 
 		// vite preview prints no version banner, only the Local line.
-		children[0]!.stdout.emit('data', Buffer.from('  ➜  Local:   http://localhost:5174/\n'))
+		children[0]!.stdout.emit('data', Buffer.from('  ➤  Local:   http://localhost:5174/\n'))
 		await vi.waitFor(() =>
 			expect(log.plain).toHaveBeenCalledWith(expect.stringContaining('preview servers ready'))
 		)
@@ -697,6 +998,28 @@ describe('buildAll', () => {
 		await buildAll(ws, undefined, 'staging')
 		expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('urls.staging'))
 	})
+
+	it('reports one result per app via the onResult callback, for --json', async () => {
+		vi.mocked(runCaptured).mockImplementation((_cmd, _args, opts) =>
+			Promise.resolve(
+				(opts as { cwd: string }).cwd.includes('profile')
+					? { code: 1, output: 'nope' }
+					: { code: 0, output: '' }
+			)
+		)
+		const ws = makeWorkspace('/ws', {
+			dashboard: remote(),
+			profile: remote({ path: 'apps/profile', port: 5175 }),
+		})
+		const results: { name: string; ok: boolean }[] = []
+
+		await expect(
+			buildAll(ws, undefined, undefined, undefined, r => results.push(r))
+		).rejects.toThrow()
+
+		expect(results).toContainEqual(expect.objectContaining({ name: 'dashboard', ok: true }))
+		expect(results).toContainEqual(expect.objectContaining({ name: 'profile', ok: false }))
+	})
 })
 
 /*
@@ -765,6 +1088,7 @@ describe('deployAll', () => {
 
 	it('hands --env to deploy commands as SPOOL_ENV', async () => {
 		vi.mocked(runShell).mockResolvedValue(undefined)
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: 'abc1234' })
 		const ws = makeWorkspace('/ws', {
 			dashboard: remote({ deploy: 'x', url: 'https://d.example.com/mf-manifest.json' }),
 		})
@@ -773,5 +1097,138 @@ describe('deployAll', () => {
 
 		const opts = vi.mocked(runShell).mock.calls[0]![1] as { env?: Record<string, string> }
 		expect(opts.env?.SPOOL_ENV).toBe('staging')
+	})
+
+	it('reports one result per app via the onResult callback, for --json', async () => {
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+		const results: { name: string; ok: boolean }[] = []
+
+		await deployAll(ws, undefined, undefined, r => results.push(r))
+
+		expect(results).toEqual([expect.objectContaining({ name: 'dashboard', ok: true })])
+	})
+
+	describe('the shared-version gate (env-scoped)', () => {
+		it('blocks a deploy that would ship a version another app cannot accept', async () => {
+			vi.mocked(runShell).mockResolvedValue(undefined)
+			vi.mocked(sharedConflicts).mockReturnValue([
+				{
+					dep: 'react',
+					otherApp: 'shell',
+					otherVersion: '17.0.0',
+					requiredVersion: '^18.0.0',
+				},
+			])
+			const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+
+			await expect(deployAll(ws, undefined, 'production')).rejects.toThrow('react')
+			expect(runShell).not.toHaveBeenCalled()
+		})
+
+		it('records the deploy after a successful run', async () => {
+			vi.mocked(runShell).mockResolvedValue(undefined)
+			vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: 'deadbeef' })
+			vi.mocked(readBuiltSharedEntries).mockReturnValue([
+				{ name: 'react', version: '18.2.0' },
+			])
+			const ws = makeWorkspace('/ws', {
+				dashboard: remote({
+					deploy: 'x',
+					urls: { production: 'https://d.example.com/mf.json' },
+				}),
+			})
+
+			await deployAll(ws, undefined, 'production')
+
+			expect(recordDeploy).toHaveBeenCalledWith(
+				ws,
+				'production',
+				'dashboard',
+				expect.objectContaining({
+					sha: 'deadbeef',
+					url: 'https://d.example.com/mf.json',
+					shared: { react: '18.2.0' },
+				})
+			)
+		})
+
+		it('does not gate or record when no --env is given', async () => {
+			vi.mocked(runShell).mockResolvedValue(undefined)
+			const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+
+			await deployAll(ws)
+
+			expect(sharedConflicts).not.toHaveBeenCalled()
+			expect(recordDeploy).not.toHaveBeenCalled()
+		})
+	})
+})
+
+/*
+ *   PROMOTE / ROLLBACK
+ ***************************************************************************************************/
+describe('promoteApp', () => {
+	it('refuses to promote a sha the working tree is not at', async () => {
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: 'currenthead' })
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+
+		await expect(promoteApp(ws, 'production', 'dashboard', 'abc1234')).rejects.toThrow(
+			'working tree'
+		)
+		expect(runShell).not.toHaveBeenCalled()
+	})
+
+	it('deploys and records the sha once the working tree matches', async () => {
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: 'abc1234full' })
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+
+		await promoteApp(ws, 'production', 'dashboard', 'abc1234')
+
+		expect(runShell).toHaveBeenCalled()
+		expect(recordDeploy).toHaveBeenCalledWith(
+			ws,
+			'production',
+			'dashboard',
+			expect.objectContaining({ sha: 'abc1234full' })
+		)
+	})
+
+	it('rejects an app with no deploy command', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote() })
+		await expect(promoteApp(ws, 'production', 'dashboard', 'abc1234')).rejects.toThrow(
+			'no "deploy" command'
+		)
+	})
+})
+
+describe('rollbackApp', () => {
+	it('fails clearly when there is nothing earlier to roll back to', async () => {
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+		await expect(rollbackApp(ws, 'production', 'dashboard')).rejects.toThrow(
+			'No earlier deploy'
+		)
+	})
+
+	it('re-deploys the previous record once the tree matches its sha', async () => {
+		const { deployHistory } = await import('../../core/deploys.js')
+		vi.mocked(deployHistory).mockReturnValue([
+			{ sha: 'current123', url: '', at: '', shared: {} },
+			{ sha: 'previous456', url: '', at: '', shared: {} },
+		])
+		vi.mocked(runCaptured).mockResolvedValue({ code: 0, output: 'previous456' })
+		vi.mocked(runShell).mockResolvedValue(undefined)
+		const ws = makeWorkspace('/ws', { dashboard: remote({ deploy: 'x' }) })
+
+		await rollbackApp(ws, 'production', 'dashboard')
+
+		expect(runShell).toHaveBeenCalled()
+		expect(recordDeploy).toHaveBeenCalledWith(
+			ws,
+			'production',
+			'dashboard',
+			expect.objectContaining({ sha: 'previous456' })
+		)
 	})
 })
