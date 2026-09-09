@@ -186,6 +186,10 @@ export function killTreeSync(child: ChildProcess): void {
 	if (!signalGroupOrChild(child.pid, child, 'SIGKILL')) return
 }
 
+// ESRCH means no such process, which is the outcome a kill wanted. taskkill says the same with 128.
+const alreadyGone = (error: unknown): boolean =>
+	(error as NodeJS.ErrnoException | null)?.code === 'ESRCH'
+
 export function killPid(pid: number): boolean {
 	if (isWindows) {
 		const result = spawnSync('taskkill', ['/pid', String(pid), '/t', '/f'], { stdio: 'ignore' })
@@ -199,8 +203,8 @@ export function killPid(pid: number): boolean {
 		try {
 			process.kill(pid, 'SIGKILL')
 			return true
-		} catch {
-			return false
+		} catch (error) {
+			return alreadyGone(error)
 		}
 	}
 }
