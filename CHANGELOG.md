@@ -1,5 +1,35 @@
 # Changelog
 
+## 3.0.1
+
+### Fixed
+
+- Remote overrides never applied. `@module-federation/vite` registers each
+  remote under an internal name and keeps the app name as `alias`, so
+  `setRemoteOverride` and `<Remote>` retry matched nothing. The generated
+  `src/federation/overrides.ts` now matches on the alias too.
+- `<Remote props>` rejected an `interface`. The generic was constrained to
+  `Record<string, unknown>`, which an interface without an index signature
+  does not satisfy. React, svelte and vue primitives now take `object`.
+- The playwright addon ignored the federation addon. With a routed shell the
+  generated spec expected every remote on one page and a `shell (host)`
+  heading that the shell never renders. It now walks each route, and the
+  shared-state test proves the count survives switching remotes.
+- The lint addon failed on spool's own output: `.spool/types` was not
+  ignored, `src/navigation/history.ts` tripped `unbound-method`, an app with
+  no remotes got unused imports in `src/test/remotes.alias.ts`,
+  `packages/e2e/playwright.config.ts` had no node types, `spool.vite.ts` had
+  a needless assertion, and `spool.workspace.ts` belonged to no tsconfig.
+  Vue formatting rules that fight prettier are off in the generated config.
+- `<pm> run test` failed for any app without a test file. Every generated
+  `vitest.config.ts` sets `passWithNoTests`.
+- A fresh checkout failed type-check in CI. `.spool/types` is ignored, so the
+  root `type-check` script now runs `spool types` first.
+- `spool ci` pinned `node-version` to the engines floor, `22.12.0`, which
+  pnpm 11 refuses. Workflows now use the major only, and the engines floor is
+  `>=22.13.0`. The deploy step's secrets block is real instead of commented
+  out, passing `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+
 ## 3.0.0
 
 The maintenance release. Everything spool writes is now tracked, everything it

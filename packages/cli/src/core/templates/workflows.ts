@@ -233,12 +233,14 @@ ${setupSteps(pm, nodeVersion, pins)}
               working-directory: ${JSON.stringify(app.path)}
               run: ${pm} run build
 
-            # Add the secrets your deploy command needs, e.g.
-            # env:
-            #     CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+            # Add the repository secrets your deploy command reads. These two
+            # cover wrangler; swap in what your host needs.
             - name: Deploy
               working-directory: ${JSON.stringify(app.path)}
               run: ${JSON.stringify(app.deploy!)}
+              env:
+                  CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: \${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 `
 }
 

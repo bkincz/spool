@@ -142,3 +142,21 @@ describe('ciWorkflows (raw)', () => {
 		})
 	})
 })
+
+/*
+ *   DEPLOY SECRETS
+ ***************************************************************************************************/
+describe('deploy secrets', () => {
+	it('passes the Cloudflare secrets to the deploy step as real env, not a comment', () => {
+		const m = makeManifest({
+			dashboard: remote({ deploy: 'wrangler pages deploy dist --project-name=dash' }),
+		})
+		const yaml = ciWorkflows(m)['.github/workflows/deploy-dashboard.yml']!
+
+		expect(yaml).toContain(
+			'              env:\n                  CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}'
+		)
+		expect(yaml).toContain('CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}')
+		expect(yaml).not.toContain('# env:')
+	})
+})

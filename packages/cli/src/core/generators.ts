@@ -1,7 +1,13 @@
 /*
  *   IMPORTS
  ***************************************************************************************************/
-import { HELPER_FILE, type AppConfig, type Framework, type Manifest } from './config.js'
+import {
+	HELPER_FILE,
+	WORKSPACE_FILE,
+	type AppConfig,
+	type Framework,
+	type Manifest,
+} from './config.js'
 import type { FileMap } from './filemap.js'
 import { PRETTIER_OPTIONS } from './format.js'
 import {
@@ -89,7 +95,7 @@ export function workspaceFiles(m: Manifest, allowBuilds: string[] = []): FileMap
 			extends: './tsconfig.base.json',
 			// TypeScript 6 stopped auto-including @types, and the helper is node code.
 			compilerOptions: { types: ['node'] },
-			include: [HELPER_FILE],
+			include: [HELPER_FILE, WORKSPACE_FILE],
 		}),
 		'README.md': workspaceReadme(m),
 	}
@@ -126,7 +132,7 @@ export function workspaceScripts(m: Manifest): Record<string, string> {
 		build: 'spool build',
 		preview: 'spool preview',
 		doctor: 'spool doctor',
-		'type-check': typeCheckAll(m),
+		'type-check': `spool types && ${typeCheckAll(m)}`,
 	}
 
 	if (m.addons.includes('lint')) scripts.lint = 'eslint .'

@@ -140,7 +140,7 @@ export const remoteOverridesPlugin: ModuleFederationRuntimePlugin = {
   name: "spool-remote-overrides",
   beforeRegisterRemote({ remote, origin }) {
     if (!enabled || !("entry" in remote)) return { remote, origin };
-    const override = localStorage.getItem(overrideKey(remote.name));
+    const override = localStorage.getItem(overrideKey(remote.alias ?? remote.name));
     if (override) remote.entry = override;
     return { remote, origin };
   },
@@ -153,7 +153,7 @@ export function applyRemoteOverrides(): void {
   if (!instance) return;
   for (const remote of instance.options.remotes) {
     if (!("entry" in remote)) continue;
-    const override = localStorage.getItem(overrideKey(remote.name));
+    const override = localStorage.getItem(overrideKey(remote.alias ?? remote.name));
     if (override && remote.entry !== override) {
       instance.registerRemotes([{ ...remote, entry: override }], { force: true });
     }
@@ -165,7 +165,7 @@ export function applyRemoteOverrides(): void {
  * the failed load. */
 export function forceReregister(name: string): void {
   const instance = getInstance();
-  const remote = instance?.options.remotes.find(candidate => candidate.name === name);
+  const remote = instance?.options.remotes.find(candidate => candidate.name === name || candidate.alias === name);
   if (instance && remote) instance.registerRemotes([remote], { force: true });
 }
 `
@@ -214,9 +214,9 @@ function install(): void {
   flagged.__spoolShell = true;
 
   for (const method of ["pushState", "replaceState"] as const) {
-    const original = history[method];
+    const original = history[method].bind(history);
     history[method] = function (this: History, ...args: Parameters<History["pushState"]>) {
-      const result = original.apply(this, args);
+      const result = original(...args);
       window.dispatchEvent(new Event(EVENT));
       return result;
     };
@@ -348,7 +348,7 @@ function warnUnknownRemote(name: string): void {
   }
 }
 
-export interface RemoteProps<P extends Record<string, unknown> = Record<string, never>> {
+export interface RemoteProps<P extends object = Record<string, never>> {
   name: string;
   /** Forwarded to the remote: props on a component contract, a second
    * mount(el, props) argument on a mount contract. */
@@ -360,7 +360,7 @@ export interface RemoteProps<P extends Record<string, unknown> = Record<string, 
   onError?: (error: Error, name: string) => void;
 }
 
-export function Remote<P extends Record<string, unknown> = Record<string, never>>({
+export function Remote<P extends object = Record<string, never>>({
   name,
   props,
   fallback = null,
@@ -409,7 +409,7 @@ export function Remote<P extends Record<string, unknown> = Record<string, never>
   );
 }
 
-function ComponentRemote<P extends Record<string, unknown>>({
+function ComponentRemote<P extends object>({
   name,
   load,
   props,
@@ -424,7 +424,7 @@ function ComponentRemote<P extends Record<string, unknown>>({
   return <View {...(props ?? {})} />;
 }
 
-function MountRemote<P extends Record<string, unknown>>({
+function MountRemote<P extends object>({
   load,
   props,
   fallback,
@@ -519,9 +519,9 @@ function svelteRemote(hasComponent: boolean, sentry: boolean): string {
 	const bridgeImport = hasComponent ? `\n  import { mountReact } from "../react-bridge";` : ''
 	const mountExpr = hasComponent
 		? `entry.contract === "component"
-          ? mountReact(m.default as never, el, props)
-          : (m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(el, props)`
-		: `(m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(el, props)`
+          ? mountReact(m.default as never, el, props as Record<string, unknown> | undefined)
+          : (m.default as (el: HTMLElement, props?: object) => () => void)(el, props)`
+		: `(m.default as (el: HTMLElement, props?: object) => () => void)(el, props)`
 	return `<script lang="ts">
   import { onDestroy } from "svelte";${bridgeImport}
   ${sentryImport}import { forceReregister } from "./overrides";
@@ -529,7 +529,7 @@ function svelteRemote(hasComponent: boolean, sentry: boolean): string {
 
   export let name: string;
   /** Forwarded to the remote's mount(el, props). */
-  export let props: Record<string, unknown> | undefined = undefined;
+  export let props: object | undefined = undefined;
 
   let el: HTMLElement;
   let cleanup: (() => void) | undefined;
@@ -593,12 +593,12 @@ function vueRemote(hasComponent: boolean, sentry: boolean): string {
 	const bridgeImport = hasComponent ? `\nimport { mountReact } from "../react-bridge";` : ''
 	const mountExpr = hasComponent
 		? `entry.contract === "component"
-        ? mountReact(m.default as never, el.value, attrs.props)
-        : (m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(
+        ? mountReact(m.default as never, el.value, attrs.props as Record<string, unknown> | undefined)
+        : (m.default as (el: HTMLElement, props?: object) => () => void)(
             el.value,
             attrs.props,
           )`
-		: `(m.default as (el: HTMLElement, props?: Record<string, unknown>) => () => void)(
+		: `(m.default as (el: HTMLElement, props?: object) => () => void)(
         el.value,
         attrs.props,
       )`
@@ -607,7 +607,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from "vue";${bridgeImport}
 ${sentryImport}import { forceReregister } from "./overrides";
 import { remotes } from "./remotes";
 
-const attrs = defineProps<{ name: string; props?: Record<string, unknown> }>();
+const attrs = defineProps<{ name: string; props?: object }>();
 const el = ref<HTMLElement | null>(null);
 const error = ref<Error | null>(null);
 let cleanup: (() => void) | undefined;
@@ -664,10 +664,10 @@ onBeforeUnmount(() => cleanup?.());
 
 /** A starting route table for the generated shell: the first remote at "/",
  * the rest at "/<name>". Written into the host's own App, which is yours to edit. */
-function defaultRoutes(refs: RemoteRef[]): Record<string, string> {
+export function defaultRoutes(names: string[]): Record<string, string> {
 	const routes: Record<string, string> = {}
-	refs.forEach((r, i) => {
-		routes[i === 0 ? '/' : `/${r.name}`] = r.name
+	names.forEach((name, i) => {
+		routes[i === 0 ? '/' : `/${name}`] = name
 	})
 	return routes
 }
@@ -677,7 +677,7 @@ export function compositionHostApp(
 	appName: string,
 	refs: RemoteRef[]
 ): string {
-	const routes = defaultRoutes(refs)
+	const routes = defaultRoutes(refs.map(r => r.name))
 	if (framework === 'svelte') return svelteCompositionHost(appName, routes)
 	if (framework === 'vue') return vueCompositionHost(appName, routes)
 	return reactCompositionHost(appName, routes)

@@ -60,7 +60,7 @@ describe('a workspace scaffolded with lint and test', () => {
 		expect(readJson('package.json').scripts).toMatchObject({
 			lint: 'eslint .',
 			test: 'pnpm -r test',
-			'type-check': 'pnpm -r type-check',
+			'type-check': 'spool types && pnpm -r type-check',
 		})
 		expect(readJson('apps/dashboard/package.json').scripts).toMatchObject({
 			test: 'vitest',
@@ -101,7 +101,7 @@ describe('a workspace scaffolded without them', () => {
 			})
 			const root = JSON.parse(readFileSync(join(plain, 'package.json'), 'utf8'))
 
-			expect(root.scripts['type-check']).toBe('pnpm -r type-check')
+			expect(root.scripts['type-check']).toBe('spool types && pnpm -r type-check')
 			expect(root.scripts.lint).toBeUndefined()
 			expect(existsSync(join(plain, 'eslint.config.js'))).toBe(false)
 			expect(existsSync(join(plain, 'apps/shell/vitest.config.ts'))).toBe(false)

@@ -107,8 +107,8 @@ describe('<Remote> failure handling', () => {
 describe('<Remote> props', () => {
 	it('makes Remote generic and spreads props onto the component contract', () => {
 		const source = reactPrimitive()
-		expect(source).toContain('export interface RemoteProps<P extends Record<string, unknown>')
-		expect(source).toContain('export function Remote<P extends Record<string, unknown>')
+		expect(source).toContain('export interface RemoteProps<P extends object')
+		expect(source).toContain('export function Remote<P extends object')
 		expect(source).toContain('<View {...(props ?? {})} />')
 	})
 
@@ -169,5 +169,31 @@ describe('src/federation/overrides.ts', () => {
 		expect(barrel).toContain(
 			'export { remotes, type RemoteEntry, preloadRemote } from "./remotes"'
 		)
+	})
+})
+
+/*
+ *   OVERRIDES
+ ***************************************************************************************************/
+describe('remote overrides', () => {
+	function overrides(): string {
+		const manifest = makeManifest({
+			shell: host({ remotes: ['browse'] }),
+			browse: remote({ path: 'apps/browse' }),
+		})
+		manifest.addons = ['federation']
+		return federationFiles(manifest, manifest.apps.shell!)['src/federation/overrides.ts']!
+	}
+
+	it('matches a remote by its alias, which is where the vite plugin keeps the app name', () => {
+		const source = overrides()
+		expect(source).toContain('overrideKey(remote.alias ?? remote.name)')
+		expect(source).toContain('candidate.name === name || candidate.alias === name')
+	})
+
+	it('accepts interface-typed props on every framework primitive', () => {
+		expect(reactPrimitive()).not.toContain('P extends Record<string, unknown>')
+		expect(framework('svelte')).toContain('export let props: object | undefined')
+		expect(framework('vue')).toContain('props?: object')
 	})
 })

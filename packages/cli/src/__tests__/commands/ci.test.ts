@@ -139,8 +139,8 @@ describe('ci', () => {
 	it('uses the workspace engines.node floor for the node version', async () => {
 		await ci({})
 		const yaml = readFileSync(join(dir, '.github/workflows/ci.yml'), 'utf8')
-		// create() scaffolds engines.node as ">=22.12.0".
-		expect(yaml).toContain("node-version: '22.12.0'")
+		// create() scaffolds engines.node as ">=22.13.0".
+		expect(yaml).toContain("node-version: '22'")
 	})
 
 	it('falls back to packages/** when the workspace has no shared package folder', async () => {

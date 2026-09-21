@@ -100,7 +100,7 @@ describe('upgrade', () => {
 		expect(pkg.dependencies.react).toBe('^19.2.8')
 		expect(pkg.dependencies['react-dom']).toBe('^19.2.8')
 		expect(pkg.devDependencies['@types/node']).toBe('^26.0.0')
-		expect(pkg.engines.node).toBe('>=22.12.0')
+		expect(pkg.engines.node).toBe('>=22.13.0')
 	})
 
 	it('updates the workspace root package.json', async () => {
@@ -108,7 +108,7 @@ describe('upgrade', () => {
 		await upgrade({})
 
 		const pkg = readJson('package.json')
-		expect(pkg.engines.node).toBe('>=22.12.0')
+		expect(pkg.engines.node).toBe('>=22.13.0')
 		expect(pkg.packageManager).toMatch(/^pnpm@/)
 		expect(pkg.devDependencies.typescript).toBeDefined()
 		expect(pkg.devDependencies['@types/node']).toBeDefined()

@@ -6,6 +6,7 @@ import type { FileMap } from '../filemap.js'
 import { ADDON_DEPS, NODE_RANGE, TOOLCHAIN } from '../versions.js'
 import { json } from '../../util/json.js'
 import { STATE_COUNT_TESTID, STATE_COUNT_TEXT } from './bridges.js'
+import { defaultRoutes, NAV_PATH_TESTID } from './composition.js'
 import type { TemplateExtras } from './types.js'
 
 /*
@@ -57,6 +58,7 @@ test("remote clicks update the shell's shared state", async ({ page }) => {
 		}),
 		'packages/e2e/tsconfig.json': json({
 			extends: '../../tsconfig.base.json',
+			compilerOptions: { types: ['node'] },
 			include: ['tests', 'playwright.config.ts'],
 		}),
 		'packages/e2e/playwright.config.ts': `import { defineConfig } from "@playwright/test";
@@ -74,7 +76,9 @@ export default defineConfig({
   },
 });
 `,
-		[`packages/e2e/tests/${hostName}.spec.ts`]: `import { test, expect } from "@playwright/test";
+		[`packages/e2e/tests/${hostName}.spec.ts`]: extras.composed
+			? composedSpec(hostName, host.remotes, extras.stateExample)
+			: `import { test, expect } from "@playwright/test";
 
 test("${hostName} mounts every remote", async ({ page }) => {
   await page.goto("/");
@@ -82,4 +86,39 @@ test("${hostName} mounts every remote", async ({ page }) => {
 });${stateTest}
 `,
 	}
+}
+
+function composedSpec(hostName: string, remotes: string[], stateExample: boolean): string {
+	const routes = Object.entries(defaultRoutes(remotes))
+	const routeChecks = routes
+		.map(
+			([path, name]) => `
+  await page.getByRole("button", { name: "${name}" }).click();
+  await expect(page.getByTestId("${NAV_PATH_TESTID}")).toHaveText("${path}");
+  await expect(page.locator("main").getByText(/exposed via Module Federation/)).toBeVisible();
+  await expect(page.locator("main strong").first()).toHaveText("${name}");`
+		)
+		.join('')
+	const [first, second] = routes
+	const stateTest =
+		stateExample && first && second
+			? `
+
+test("shared state survives switching remotes", async ({ page }) => {
+  await page.goto("${first[0]}");
+  await expect(page.getByText("${STATE_COUNT_TEXT} 0")).toBeVisible();
+  await page.getByRole("button", { name: "Increment" }).click();
+  await page.getByRole("button", { name: "${second[1]}" }).click();
+  await expect(page.getByTestId("${NAV_PATH_TESTID}")).toHaveText("${second[0]}");
+  await expect(page.getByText("${STATE_COUNT_TEXT} 1")).toBeVisible();
+});`
+			: ''
+
+	return `import { test, expect } from "@playwright/test";
+
+test("${hostName} routes to every remote", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.locator("nav strong")).toHaveText("${hostName}");${routeChecks}
+});${stateTest}
+`
 }

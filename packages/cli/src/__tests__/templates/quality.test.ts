@@ -5,7 +5,12 @@ import { describe, it, expect } from 'vitest'
 import { transform } from 'esbuild'
 import { ADDONS } from '../../core/addons.js'
 import { appFiles, hostWiringFiles, workspaceScripts } from '../../core/generators.js'
-import { ALIAS_FILE } from '../../core/templates/quality.js'
+import {
+	ALIAS_FILE,
+	eslintConfig,
+	remoteAliasModule,
+	vitestConfig,
+} from '../../core/templates/quality.js'
 import { appDependencies, rootDevDependencies } from '../../core/versions.js'
 import { host, remote, makeManifest } from '../helpers.js'
 import type { AddonName, Manifest } from '../../core/config.js'
@@ -38,13 +43,13 @@ describe('type-check wiring', () => {
 		const app = JSON.parse(appFiles(manifest, 'browse', manifest.apps.browse!)['package.json']!)
 
 		expect(app.scripts['type-check']).toBe('tsc --noEmit')
-		expect(workspaceScripts(manifest)['type-check']).toBe('pnpm -r type-check')
+		expect(workspaceScripts(manifest)['type-check']).toBe('spool types && pnpm -r type-check')
 	})
 
 	it('spells the recursive run the way each package manager wants', () => {
 		for (const [pm, expected] of [
-			['npm', 'npm run type-check --workspaces --if-present'],
-			['yarn', 'yarn workspaces foreach -A run type-check'],
+			['npm', 'spool types && npm run type-check --workspaces --if-present'],
+			['yarn', 'spool types && yarn workspaces foreach -A run type-check'],
 		] as const) {
 			const manifest = workspace([])
 			manifest.packageManager = pm
@@ -187,5 +192,25 @@ describe('test addon', () => {
 
 		expect(deps).toHaveProperty('@testing-library/svelte')
 		expect(deps).not.toHaveProperty('@testing-library/react')
+	})
+})
+
+/*
+ *   LINT AND TEST PASS ON A FRESH SCAFFOLD
+ ***************************************************************************************************/
+describe('generated files lint and test clean', () => {
+	it('lets an app without tests pass the workspace test run', () => {
+		expect(vitestConfig()).toContain('passWithNoTests: true')
+	})
+
+	it('emits an alias module with nothing unused when an app has no remotes', () => {
+		const manifest = workspace(['test'])
+		const source = remoteAliasModule(manifest, manifest.apps.browse!)
+		expect(source).not.toContain('node:path')
+		expect(source).toContain('export const remoteAliases: Record<string, string> = {};')
+	})
+
+	it('keeps eslint out of the generated declarations', () => {
+		expect(eslintConfig(workspace(['lint']))).toContain('".spool"')
 	})
 })

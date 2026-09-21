@@ -33,7 +33,7 @@ export interface CiOptions {
 function resolveNodeVersion(ws: Workspace, engineRange: string | undefined): string {
 	if (engineRange) {
 		const floor = rangeFloor(engineRange)
-		if (floor) return floor.join('.')
+		if (floor) return String(floor[0])
 	}
 
 	const nvmrc = join(ws.root, '.nvmrc')
