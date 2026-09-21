@@ -234,7 +234,7 @@ function declaredShared(dir: string, deps: string[]): string[] {
   // "@scope/pkg/subpath" is declared through its package, "@scope/pkg".
   const packageName = (dep: string): string => {
     const parts = dep.split("/");
-    return dep.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
+    return dep.startsWith("@") ? parts.slice(0, 2).join("/") : (parts[0] ?? dep);
   };
   return deps.filter(dep => declared.has(packageName(dep)));
 }

@@ -162,6 +162,27 @@ describe('create', () => {
 		expect(read('pnpm-workspace.yaml')).toContain("- '@swc/core'")
 	})
 
+	it('writes a route-walking e2e spec when the host is a routed shell', async () => {
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard, profile',
+			addons: 'playwright, federation, state',
+			install: false,
+		})
+
+		const spec = read('packages/e2e/tests/shell.spec.ts')
+		expect(spec).toContain('shell routes to every remote')
+		expect(spec).not.toContain('shell (host)')
+		expect(spec).toContain("toHaveText('/profile')")
+		expect(spec).toContain("getByTestId('shell-path')")
+		expect(spec).toContain('shared state survives switching remotes')
+		expect(JSON.parse(read('packages/e2e/tsconfig.json')).compilerOptions.types).toEqual([
+			'node',
+		])
+	})
+
 	it('wires the shared-state addon through spool.json and every app', async () => {
 		await create(dir, {
 			name: 'acme',

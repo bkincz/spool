@@ -12,7 +12,7 @@ spool is a small CLI for building micro frontends. It scaffolds a monorepo of Mo
 npm install -g @bkincz/spool
 ```
 
-You'll need Node 22.12 or newer. Workspaces run on pnpm, npm, or yarn.
+You'll need Node 22.13 or newer. Workspaces run on pnpm, npm, or yarn.
 
 ## Quick start
 
