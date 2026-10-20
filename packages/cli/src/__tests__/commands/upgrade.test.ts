@@ -6,6 +6,8 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { create } from '../../commands/create.js'
 import { upgrade } from '../../commands/upgrade.js'
+import { diagnose } from '../../core/doctor.js'
+import { requireWorkspace } from '../../core/workspace.js'
 import { hashContent, PROVENANCE_FILE } from '../../core/provenance.js'
 import { log } from '../../util/logger.js'
 import { freshDir, removeDir } from '../helpers.js'
@@ -341,6 +343,20 @@ describe('upgrade', () => {
 		await upgrade({})
 
 		expect(read('spool.vite.ts')).toContain('export function spoolApp')
+	})
+
+	it('brings an older helper up to server.fs.allow support, which doctor then accepts', async () => {
+		const manifest = readJson('spool.json')
+		manifest.server = { fs: { allow: ['.'] } }
+		writeFileSync(join(dir, 'spool.json'), JSON.stringify(manifest))
+		recordAsGenerated('spool.vite.ts', '// an older spool wrote this, before fs.allow\n')
+		const codes = async () => diagnose(await requireWorkspace(dir)).map(i => i.code)
+		expect(await codes()).toContain('helper-stale-fs-allow')
+
+		await upgrade({})
+
+		expect(read('spool.vite.ts')).toContain('function fsAllow(')
+		expect(await codes()).not.toContain('helper-stale-fs-allow')
 	})
 
 	it('leaves an edited file alone even when it still carries the marker', async () => {

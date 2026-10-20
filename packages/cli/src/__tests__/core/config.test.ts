@@ -207,6 +207,46 @@ describe('headers, frameAncestors and overrides', () => {
 })
 
 /*
+ *   SERVER FS ALLOW
+ ***************************************************************************************************/
+describe('server.fs.allow', () => {
+	const withAllow = (allow: unknown) =>
+		parseManifest({ name: 'acme', server: { fs: { allow } }, apps: {} })
+
+	it('accepts relative, parent and absolute folders', () => {
+		const allow = ['../contracts/packages', 'vendor', '/srv/shared', 'D:\\shared']
+		expect(withAllow(allow).server?.fs?.allow).toEqual(allow)
+	})
+
+	it('is optional, and absent unless set', () => {
+		expect(parseManifest({ name: 'acme', server: { cors: false }, apps: {} }).server).toEqual({
+			cors: false,
+		})
+	})
+
+	it('rejects an empty or blank entry', () => {
+		expect(() => withAllow([''])).toThrow(
+			/server\.fs\.allow\.0: server\.fs\.allow entries cannot be empty/
+		)
+		expect(() => withAllow(['  '])).toThrow(/cannot be empty/)
+	})
+
+	it('rejects the filesystem root, posix or windows', () => {
+		for (const root of ['/', '\\', 'C:', 'C:\\', 'c:/']) {
+			expect(() => withAllow([root])).toThrow(/filesystem root/)
+		}
+	})
+
+	it('rejects a non-array, a non-string entry and unknown fs keys', () => {
+		expect(() => withAllow('../contracts')).toThrow()
+		expect(() => withAllow([42])).toThrow()
+		expect(() =>
+			parseManifest({ name: 'acme', server: { fs: { allow: [], deny: ['.env'] } }, apps: {} })
+		).toThrow(/deny/)
+	})
+})
+
+/*
  *   ADDONS
  ***************************************************************************************************/
 describe('addons', () => {

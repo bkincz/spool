@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.1.0
+
+### Added
+
+- `server.fs.allow` in `spool.json` lets the dev server serve folders outside
+  the workspace, such as a sibling `../contracts/packages` linked in with
+  `link:`. Entries resolve against the folder `spool.json` is in. Setting
+  Vite's own `fs.allow` drops its default, so `spool.vite.ts` puts the
+  workspace root back first, found the way Vite's `searchForWorkspaceRoot`
+  finds it. `fs.deny` is left to Vite, and `preview` is unaffected.
+- The manifest rejects an empty `fs.allow` entry or the filesystem root.
+  `spool doctor` errors on an entry that climbs to the root and warns about a
+  folder that does not exist.
+- `spool dev` and `spool doctor` warn when `server.fs.allow` is set but
+  `spool.vite.ts` predates it. Run `spool upgrade` to regenerate the helper;
+  nothing changes for a workspace that does not set it.
+
 ## 3.0.1
 
 ### Fixed
