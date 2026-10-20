@@ -4,7 +4,7 @@
 import { join } from 'node:path'
 import type { ChildProcess } from 'node:child_process'
 import pc from 'picocolors'
-import type { Workspace } from './workspace.js'
+import { helperLacks, type Workspace } from './workspace.js'
 import { HELPER_FILE, type AppConfig } from './config.js'
 import { checkBuiltSingletons, describeShipped } from './federation.js'
 import { existsSync, readFileSync } from 'node:fs'
@@ -187,7 +187,7 @@ async function serveAll(ws: Workspace, mode: ServeMode, opts: ServeOptions = {})
 		requireDists(ws, apps)
 		warnStalePreview(ws)
 		warnDeployedUrls(apps)
-	}
+	} else warnStaleFsAllow(ws)
 
 	const excluded = excludedRemotes(ws, apps)
 	const rest = resolveRest(ws, excluded, opts.rest)
@@ -476,17 +476,20 @@ function requireDists(ws: Workspace, apps: NamedApp[]): void {
 	}
 }
 
-/** Workspaces keep their scaffolded spool.vite.ts until `spool upgrade` regenerates it. */
-function helperLacks(ws: Workspace, token: string): boolean {
-	const helper = join(ws.root, HELPER_FILE)
-	return existsSync(helper) && !readFileSync(helper, 'utf8').includes(token)
-}
-
 /** Old helpers serve preview without CORS headers, and _headers files are inert here. */
 function warnStalePreview(ws: Workspace): void {
 	if (helperLacks(ws, 'cors')) {
 		log.warn(
 			`This workspace's ${HELPER_FILE} predates preview CORS support, so browsers may block hosts fetching remotes cross-origin. Run \`spool upgrade\`.`
+		)
+	}
+}
+
+/** An old helper drops server.fs.allow, so vite answers 403 for those folders. */
+function warnStaleFsAllow(ws: Workspace): void {
+	if (ws.manifest.server?.fs && helperLacks(ws, 'fsAllow')) {
+		log.warn(
+			`This workspace's ${HELPER_FILE} predates server.fs.allow, so the dev server ignores it. Run \`spool upgrade\`.`
 		)
 	}
 }

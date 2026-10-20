@@ -188,6 +188,55 @@ describe('diagnose', () => {
 	})
 
 	/*
+	 *   SERVER FS ALLOW
+	 ***************************************************************************************************/
+	describe('server.fs.allow', () => {
+		const withAllow = (allow: string[], helper = 'function fsAllow() {}\n') => {
+			writeFileSync(join(root, 'spool.vite.ts'), helper)
+			const ws = withFolders({ shell: host() })
+			ws.manifest.server = { fs: { allow } }
+			return ws
+		}
+
+		it('stays quiet when every entry exists and the helper supports it', () => {
+			mkdirSync(join(root, 'contracts'))
+			expect(diagnose(withAllow(['contracts']))).toEqual([])
+		})
+
+		it('warns, not errors, about a folder that does not exist', () => {
+			const issues = diagnose(withAllow(['../missing-contracts']))
+			expect(issues).toEqual([
+				expect.objectContaining({ level: 'warn', code: 'fs-allow-missing' }),
+			])
+			expect(issues[0]!.message).toContain(join(root, '../missing-contracts'))
+		})
+
+		it('errors on an entry that climbs to the filesystem root', () => {
+			const up = '../'.repeat(root.split(/[\\/]/).length + 2)
+			expect(diagnose(withAllow([up]))).toEqual([
+				expect.objectContaining({ level: 'error', code: 'fs-allow-root' }),
+			])
+		})
+
+		it('leaves an entry with an env reference to the helper', () => {
+			expect(diagnose(withAllow(['${CONTRACTS_DIR}']))).toEqual([])
+		})
+
+		it('points an older helper at spool upgrade', () => {
+			mkdirSync(join(root, 'contracts'))
+			const issues = diagnose(withAllow(['contracts'], '// stub\n'))
+			expect(issues).toEqual([
+				expect.objectContaining({ level: 'warn', code: 'helper-stale-fs-allow' }),
+			])
+			expect(issues[0]!.message).toMatch(/spool upgrade/)
+		})
+
+		it('says nothing about an older helper when the setting is absent', () => {
+			expect(diagnose(withFolders({ shell: host() }))).toEqual([])
+		})
+	})
+
+	/*
 	 *   REMOTE CHECKS
 	 ***************************************************************************************************/
 	describe('diagnoseRemotes', () => {

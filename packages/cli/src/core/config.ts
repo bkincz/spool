@@ -120,12 +120,32 @@ const ProxyEntry = z
 	})
 	.strict()
 
+const FILESYSTEM_ROOT = /^(?:[\\/]+|[a-zA-Z]:[\\/]*)$/
+
+const FsAllowEntry = z
+	.string()
+	.refine(value => value.trim() !== '', {
+		message: 'server.fs.allow entries cannot be empty.',
+	})
+	.refine(value => !FILESYSTEM_ROOT.test(value.trim()), {
+		message:
+			'server.fs.allow cannot include the filesystem root; that would let the dev server read any file on disk.',
+	})
+
+const FsSchema = z
+	.object({
+		/** Extra directories the dev server may serve, relative to the workspace root. The workspace root itself stays allowed. */
+		allow: z.array(FsAllowEntry),
+	})
+	.strict()
+
 export const ServerSchema = z
 	.object({
 		proxy: z.record(z.string(), z.union([z.string(), ProxyEntry])).optional(),
 		headers: z.record(z.string(), z.string()).optional(),
 		host: z.union([z.boolean(), z.string()]).optional(),
 		cors: z.boolean().optional(),
+		fs: FsSchema.optional(),
 	})
 	.strict()
 

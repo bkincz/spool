@@ -2,10 +2,11 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { readFile, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import {
 	DEFAULT_FRAMEWORK,
+	HELPER_FILE,
 	MANIFEST_FILE,
 	MANIFEST_VERSION,
 	parseManifest,
@@ -59,6 +60,12 @@ export async function requireWorkspace(cwd = process.cwd()): Promise<Workspace> 
 		)
 	}
 	return ws
+}
+
+/** Workspaces keep their scaffolded spool.vite.ts until `spool upgrade` regenerates it. */
+export function helperLacks(ws: Workspace, token: string): boolean {
+	const helper = join(ws.root, HELPER_FILE)
+	return existsSync(helper) && !readFileSync(helper, 'utf8').includes(token)
 }
 
 export async function saveManifest(ws: Workspace): Promise<void> {

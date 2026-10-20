@@ -2,8 +2,8 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { existsSync, readFileSync, readdirSync, statSync, type Dirent } from 'node:fs'
-import { join } from 'node:path'
-import type { Workspace } from './workspace.js'
+import { dirname, join, resolve } from 'node:path'
+import { helperLacks, type Workspace } from './workspace.js'
 import { HELPER_FILE, type Framework, type Manifest } from './config.js'
 import { FRAMEWORK_DEPS, SENTRY_SDK } from './versions.js'
 import { readPackageJson } from './packages.js'
@@ -59,6 +59,7 @@ export function diagnose(ws: Workspace): Diagnostic[] {
 	const targets = resolveRanges(ws)
 	return [
 		...checkHelper(ws.root),
+		...checkFsAllow(ws),
 		...checkPorts(apps),
 		...checkPaths(ws.root, apps),
 		...checkRemotes(apps),
@@ -107,6 +108,51 @@ function checkHelper(root: string): Diagnostic[] {
 			`${HELPER_FILE} is missing from the workspace root. App vite configs import it; restore it from version control, or run \`spool add\` which recreates it.`
 		),
 	]
+}
+
+/**
+ * Entries resolve against the workspace root. One holding an env reference
+ * depends on the shell spool.vite.ts runs in, so it is left to the helper.
+ */
+function checkFsAllow(ws: Workspace): Diagnostic[] {
+	const entries = ws.manifest.server?.fs?.allow
+	if (!entries) return []
+
+	const issues: Diagnostic[] = []
+	if (helperLacks(ws, 'fsAllow')) {
+		issues.push(
+			warn(
+				'',
+				'helper-stale-fs-allow',
+				`This workspace's ${HELPER_FILE} predates server.fs.allow, so the dev server ignores it. Run \`spool upgrade\`.`
+			)
+		)
+	}
+
+	for (const entry of entries) {
+		if (entry.includes('${')) continue
+
+		const dir = resolve(ws.root, entry)
+		if (dirname(dir) === dir) {
+			issues.push(
+				error(
+					'',
+					'fs-allow-root',
+					`server.fs.allow entry "${entry}" resolves to the filesystem root "${dir}", which would let the dev server read any file on disk.`
+				)
+			)
+		} else if (!existsSync(dir)) {
+			issues.push(
+				warn(
+					'',
+					'fs-allow-missing',
+					`server.fs.allow entry "${entry}" points at "${dir}", which does not exist yet.`
+				)
+			)
+		}
+	}
+
+	return issues
 }
 
 function checkPorts(apps: Apps): Diagnostic[] {

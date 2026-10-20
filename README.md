@@ -114,7 +114,7 @@ Everything lives in one `spool.json`. Each app's `vite.config.ts` reads it throu
 | `shared`                     | Deps shared as singletons across apps                                                                |
 | `shareStrategy`              | Optional. `loaded-first` (default) or `version-first`                                                |
 | `overrides`                  | Optional. `true` keeps runtime remote overrides on in production builds (default `false`)            |
-| `server`                     | Optional. Dev server settings every app gets: `proxy`, `headers`, `host`, `cors`                     |
+| `server`                     | Optional. Dev server settings every app gets: `proxy`, `headers`, `host`, `cors`, `fs.allow`         |
 | `apps.<name>.type`           | `host` consumes remotes, `remote` exposes modules                                                    |
 | `apps.<name>.framework`      | `react` (default), `svelte`, or `vue`                                                                |
 | `apps.<name>.port`           | Dev server port                                                                                      |
@@ -137,6 +137,28 @@ Settings every app needs from the dev server go in `server`, so you never edit a
 ```
 
 `${VAR}` and `${VAR:-fallback}` read the environment at startup.
+
+### Serving files outside the workspace
+
+Vite's dev server only serves files inside the workspace, so a module linked in from a sibling folder gets a 403. List the folders in `server.fs.allow`, relative to the folder `spool.json` is in:
+
+```text
+contracts/packages/schemas     shared zod schemas, linked with "link:../contracts/packages/schemas"
+frontend/spool.json
+frontend/apps/shell
+```
+
+```jsonc
+{
+  "server": {
+    "fs": { "allow": ["../contracts/packages"] }
+  }
+}
+```
+
+Every app's dev server then allows the workspace root, as Vite does by default, plus each folder you list, as absolute paths. Vite's `fs.deny` defaults (`.env`, `.env.*`, certificates, `.git`) still apply inside them. `preview` serves only the built `dist/` and ignores the setting.
+
+An empty entry or the filesystem root is rejected. A folder that does not exist yet is only a `spool doctor` warning, since Vite ignores it. Entries may use `${VAR}`; `doctor` skips those and the dev server refuses one that expands to nothing. A `spool.vite.ts` from before 3.1 ignores the setting, and `spool dev` and `spool doctor` say so; run `spool upgrade`.
 
 The manifest is validated when it loads. A remote that names itself or an app that does not exist, a cycle through `remotes`, an expose outside its app folder, or an app `path` outside the workspace fails right away with the app named. `spool doctor` catches the rest after hand-editing.
 

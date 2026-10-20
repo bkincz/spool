@@ -2,8 +2,8 @@
  *   IMPORTS
  ***************************************************************************************************/
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { readFileSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { create } from '../../commands/create.js'
 import { freshDir, removeDir } from '../helpers.js'
@@ -168,6 +168,86 @@ describe('manifest server config', () => {
 				'Content-Security-Policy': "frame-ancestors 'self'",
 			},
 		})
+	})
+})
+
+describe('server.fs.allow', () => {
+	const withFsAllow = (allow: string[]) => {
+		const manifest = readJson('spool.json')
+		manifest.server = { fs: { allow } }
+		writeJson('spool.json', manifest)
+	}
+
+	it('keeps the workspace root and resolves entries against it, for every app', async () => {
+		withFsAllow(['../contracts/packages'])
+		const { spoolApp } = await load('spool.vite.ts')
+		const contracts = resolve(dir, '../contracts/packages')
+
+		for (const name of ['shell', 'dashboard']) {
+			expect(spoolApp(name, join(dir, 'apps', name)).server.fs).toEqual({
+				allow: [dir, contracts],
+			})
+		}
+	})
+
+	it('keeps absolute entries as they are and drops duplicates', async () => {
+		const shared = resolve(dir, '../shared')
+		withFsAllow([shared, '.', shared])
+		const { spoolApp } = await load('spool.vite.ts')
+
+		expect(spoolApp('dashboard', join(dir, 'apps/dashboard')).server.fs.allow).toEqual([
+			dir,
+			shared,
+		])
+	})
+
+	it('finds the workspace root the way vite does when it is not where spool.json is', async () => {
+		withFsAllow(['../contracts'])
+		// npm workspaces declare themselves in package.json instead of pnpm-workspace.yaml.
+		rmSync(join(dir, 'pnpm-workspace.yaml'))
+		const pkg = readJson('package.json')
+		pkg.workspaces = ['apps/*']
+		writeJson('package.json', pkg)
+		const { spoolApp } = await load('spool.vite.ts')
+
+		expect(spoolApp('dashboard', join(dir, 'apps/dashboard')).server.fs.allow[0]).toBe(dir)
+
+		delete pkg.workspaces
+		writeJson('package.json', pkg)
+		// With no workspace marker anywhere vite falls back to the nearest package.json.
+		expect(spoolApp('dashboard', join(dir, 'apps/dashboard')).server.fs.allow[0]).toBe(
+			join(dir, 'apps/dashboard')
+		)
+	})
+
+	it('expands the environment in entries', async () => {
+		withFsAllow(['${ACME_CONTRACTS:-../contracts}'])
+		const { spoolApp } = await load('spool.vite.ts')
+
+		expect(spoolApp('dashboard', join(dir, 'apps/dashboard')).server.fs.allow[1]).toBe(
+			resolve(dir, '../contracts')
+		)
+	})
+
+	it('refuses an entry that ends up empty or at the filesystem root', async () => {
+		const { spoolApp } = await load('spool.vite.ts')
+
+		withFsAllow(['${ACME_UNSET_DIR}'])
+		expect(() => spoolApp('dashboard', join(dir, 'apps/dashboard'))).toThrow(
+			/server\.fs\.allow/
+		)
+
+		withFsAllow(['../'.repeat(dir.split(/[\\/]/).length + 2)])
+		expect(() => spoolApp('dashboard', join(dir, 'apps/dashboard'))).toThrow(/filesystem root/)
+	})
+
+	it('leaves fs.deny to vite', async () => {
+		withFsAllow(['../contracts'])
+		const { spoolApp } = await load('spool.vite.ts')
+
+		expect(spoolApp('dashboard', join(dir, 'apps/dashboard')).server.fs).not.toHaveProperty(
+			'deny'
+		)
 	})
 })
 

@@ -146,6 +146,7 @@ export interface SpoolServerConfig {
   headers?: Record<string, string>;
   host?: boolean | string;
   cors?: boolean | { origin: string[] };
+  fs?: { allow: string[] };
 }
 
 export type SpoolShareStrategy = "version-first" | "loaded-first";
@@ -260,12 +261,59 @@ function expandEnv<T>(value: T): T {
   return value;
 }
 
+/**
+ * Mirrors vite's searchForWorkspaceRoot, which this file cannot import: vite
+ * is installed in each app, not at the workspace root.
+ */
+function viteWorkspaceRoot(from: string): string {
+  const isWorkspace = (dir: string): boolean => {
+    if (existsSync(join(dir, "pnpm-workspace.yaml")) || existsSync(join(dir, "lerna.json"))) {
+      return true;
+    }
+    try {
+      const pkg = JSON.parse(readFileSync(join(dir, "package.json"), "utf8")) as {
+        workspaces?: unknown;
+      };
+      return Boolean(pkg.workspaces);
+    } catch {
+      return false;
+    }
+  };
+  let packageRoot: string | undefined;
+  let dir = resolve(from);
+  for (;;) {
+    if (isWorkspace(dir)) return dir;
+    if (packageRoot === undefined && existsSync(join(dir, "package.json"))) packageRoot = dir;
+    const parent = dirname(dir);
+    if (parent === dir) return packageRoot ?? resolve(from);
+    dir = parent;
+  }
+}
+
+/**
+ * Setting server.fs.allow drops vite's default of the workspace root, so it
+ * is put back first. Entries resolve against the spool.json folder.
+ */
+function fsAllow(entries: string[], workspaceRoot: string, from: string): string[] {
+  const dirs = entries.map(entry => {
+    const dir = resolve(workspaceRoot, entry);
+    if (entry.trim() === "" || dirname(dir) === dir) {
+      throw new Error(
+        'spool.vite: server.fs.allow entry "' + entry + '" resolves to "' + dir + '". Use a folder below the filesystem root.'
+      );
+    }
+    return dir;
+  });
+  return [...new Set([viteWorkspaceRoot(from), ...dirs])];
+}
+
 export function spoolApp(
   name: string,
   from: string = process.cwd(),
   command: SpoolCommand = "serve"
 ): SpoolAppConfig {
-  const manifest = JSON.parse(readFileSync(findManifest(from), "utf8")) as SpoolManifest;
+  const manifestPath = findManifest(from);
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as SpoolManifest;
   const app = manifest.apps[name];
   if (!app) throw new Error('spool.vite: no app named "' + name + '" in spool.json');
 
@@ -283,12 +331,19 @@ export function spoolApp(
   // Manifest settings come last so a workspace can override proxy/host/cors,
   // but headers are merged (not replaced) so the CSP below always applies,
   // and the port always stays the app's own.
-  const { headers: manifestHeaders, ...manifestServer } = expandEnv(manifest.server ?? {});
+  const {
+    headers: manifestHeaders,
+    fs: manifestFs,
+    ...manifestServer
+  } = expandEnv(manifest.server ?? {});
   const server = {
     port: app.port,
     strictPort: true,
     cors,
     ...manifestServer,
+    ...(manifestFs
+      ? { fs: { allow: fsAllow(manifestFs.allow, dirname(manifestPath), from) } }
+      : {}),
     headers: {
       "X-Content-Type-Options": "nosniff",
       // "edge" means an edge layer sets frame-ancestors in production; dev sets none.
