@@ -4,115 +4,128 @@
 
 ### Breaking
 
-- Remote names are typed. `src/federation/remotes.ts` declares `remotes` with
-  `satisfies Record<string, RemoteEntry>` and exports
-  `type RemoteName = keyof typeof remotes`, re-exported from
-  `@/federation`. `<Remote name>` in React, Svelte and Vue, its `onError` name,
-  and `preloadRemote` take a `RemoteName`, so `<Remote name="admn" />` is a
-  compile error instead of rendering nothing. Code that passes a plain `string`
-  stops compiling, including the route table in a composed host's
-  `src/app/app.*`, which is yours and which `spool upgrade` leaves alone: type it
-  `Record<string, RemoteName>`. `remotes` no longer has a string index. The
-  runtime is unchanged: an unknown name still renders nothing and warns in dev,
-  and `preloadRemote` still swallows it.
-- React's `<Remote>` handles load failures only. Its boundary used to catch
-  everything under a remote, so a remote that threw while rendering showed "This
-  section could not be loaded", was reported as a load failure, and never
-  reached the app's own error boundary. Load rejections are now marked as they
-  happen, and anything else is rethrown exactly as it was thrown, not wrapped in
-  an `Error`, to the app's error boundaries. `onError` and the sentry addon's
-  capture now only see load failures. A host without an error boundary of its
-  own gets React's default for an uncaught error, which unmounts the page, so
-  add one around the host's routes. `Remote.svelte` and `Remote.vue` have no
-  render boundary and are unchanged.
+- **Remote names are typed.** `src/federation/remotes.ts` now builds a
+  `RemoteName` type from the remotes it knows about, and `@/federation` exports
+  it too. `<Remote name>` in React, Svelte and Vue, the name `onError` is called
+  with, and `preloadRemote` all take a `RemoteName`. A typo like
+  `<Remote name="admn" />` used to render nothing without a word, and now it
+  won't compile. The catch is that anything passing a plain `string` stops
+  compiling as well. That includes the route table in a composed host's
+  `src/app/app.*`, which is your file, so `spool upgrade` won't touch it. Type it
+  as `Record<string, RemoteName>`. `remotes` also loses its string index.
+  Nothing changes at runtime: an unknown name still renders nothing and warns in
+  dev, and `preloadRemote` still ignores it.
+- **React's `<Remote>` only catches load failures now.** Its boundary used to
+  catch everything under a remote. So a remote that loaded fine and then threw
+  while rendering showed "This section could not be loaded", got reported as a
+  load failure, and never reached your app's own error boundary. Load failures
+  are now marked when they happen. Anything else is rethrown exactly as it was
+  thrown, without being wrapped in an `Error`, for your app's boundaries to
+  handle. `onError` and the sentry addon only hear about load failures. A host
+  with no error boundary of its own falls back to React's default for an
+  uncaught error, which unmounts the page, so add one around the host's routes.
+  `Remote.svelte` and `Remote.vue` never had a render boundary, so they haven't
+  changed.
 
 ### Added
 
-- `isRemoteName(name)` in `remotes.ts` and `@/federation` narrows a string that
-  only arrives at runtime, from a url or a CMS say, to a `RemoteName`.
-- `matchRoute` is generic, so a `Record<string, RemoteName>` route table gives
-  back a `RemoteName`. A `Record<string, string>` one still gives a `string`.
-- A composed host's generated `src/app/app.*` types its route table with
+- `isRemoteName(name)`, from `remotes.ts` and `@/federation`, checks a string
+  you only get at runtime, say from a url or a CMS, and narrows it to a
   `RemoteName`.
+- `matchRoute` is generic. Give it a `Record<string, RemoteName>` and you get a
+  `RemoteName` back. A `Record<string, string>` still gives you a `string`.
+- When spool generates a composed host's `src/app/app.*`, it types the route
+  table with `RemoteName`.
 
 ### Fixed
 
-Follow-ups to 3.1.1's retry, and one older bug:
+Follow-ups to 3.1.1's retry fix, found while upgrading a real shell that has a
+nested host:
 
-- Retry state was kept per bundle. A shell and a nested host each bundle their
-  own `load.ts` and runtime, but share the runtime's entry cache and the
-  browser's module map. Once a nested host had recovered a remote, a host that
-  had also failed on it re-registered it, which dropped the loaded entry, and
-  then loaded `remoteEntry.js` from its own `?spool-retry=1`. That evaluated the
-  remote's container a second time. The state now lives on `globalThis`, keyed
-  by entry url like the runtime's cache. A remote that any host has loaded is
-  imported from the url its container came from, and each failure moves the
-  next attempt to a fresh url, whichever host makes it.
-- A second "Try again" on a remote whose first retry was still loading
-  re-registered it again, which dropped the load in flight and fetched a second
-  url. A remote is no longer re-registered while one of its loads is in flight,
-  so the second retry shares the first one.
-- One failed expose made the next load of any expose of that remote, and every
-  retry, force a re-register. That dropped the runtime's module for a remote
-  that had loaded fine, along with its instance and shared modules, while its
+- **Hosts didn't share what they knew about a remote.** A shell and a nested
+  host each bundle their own `load.ts` and their own copy of the runtime, but
+  they share the runtime's entry cache and the browser's module map. Say a
+  nested host had already recovered a remote and another host had failed on it
+  too. That other host re-registered the remote, which threw away the loaded
+  entry, then fetched `remoteEntry.js` from its own `?spool-retry=1`, so the
+  remote's container was evaluated a second time. That state now lives on
+  `globalThis`, keyed by entry url the same way the runtime keys its cache. Once
+  any host has loaded a remote, every host imports it from the url it came from.
+  Each failure moves the next attempt to a fresh url, whichever host makes it.
+- **Clicking "Try again" twice could load a remote twice.** If the first retry
+  was still loading, the second re-registered the remote. That dropped the load
+  in flight and fetched a second url. A remote is no longer re-registered while
+  it's loading, so the second click just waits on the first.
+- **One failed expose could tear down a remote that was working.** Once any
+  expose of a remote failed, the next load of any of its exposes re-registered
+  the whole remote, and so did every retry. That threw away the runtime's module
+  for the remote, along with its instance and shared modules, even while its
   other exposes could still be mounted. A remote is now re-registered only when
-  its entry script failed and nothing on the page has loaded or is loading it
-  since. A failed expose of a loaded remote is retried through the runtime
-  alone, and a failed manifest needs no re-register either, as the runtime keeps
-  nothing about it.
-- With that, the runtime's "The remote … is already registered" warning only
-  appears on a retry of an entry script that failed. The runtime has no public
-  way to remove a remote first.
+  its entry script failed and nothing on the page has loaded it, or is loading
+  it, since. A failed expose of a remote that loaded is retried through the
+  runtime on its own. A failed manifest doesn't need a re-register at all,
+  because the runtime doesn't keep anything about it.
+- As a result, the runtime's "The remote … is already registered" warning now
+  only shows up when retrying an entry script that failed. The runtime has no
+  public way to remove a remote before re-registering it, so the warning can't
+  go away completely.
 
-- A host with no remotes yet generated a `remotes.ts` that imported `loadRemote`
-  without using it, which the lint addon reports.
+Other fixes:
+
+- A host with no remotes yet got a `remotes.ts` that imported `loadRemote` and
+  never used it, which the lint addon flagged.
 - `spool upgrade` never refreshed the navigation addon's files, so a workspace
-  kept the `src/navigation` it was created with. It now regenerates them like the
-  federation files, asking first for any you edited.
+  kept whatever `src/navigation` it was created with. It now regenerates them
+  like the federation files, and asks first about any you've edited.
 
 ### Documented
 
 - Since 3.1.1, the first mount after a failed `preloadRemote` loads the remote
-  again by itself, so a short outage during a boot preload recovers without a
-  click. The README now says so.
+  again by itself. So a short outage during a boot preload recovers without
+  anyone clicking anything. The README now mentions it.
 
 ### Upgrading
 
-Run `spool upgrade` in every host, nested hosts included, then `spool doctor`.
-It rewrites `src/federation/remotes.ts`, `load.ts`, `index.ts` and the
-`<Remote>` primitive, and `src/navigation/history.ts`. Then:
+Run `spool upgrade` in every host, nested hosts too, then `spool doctor`. It
+rewrites `src/federation/remotes.ts`, `load.ts`, `index.ts` and the `<Remote>`
+primitive, plus `src/navigation/history.ts`. Then:
 
-- Type every route table or other value that holds remote names as
-  `RemoteName`, and check strings that arrive at runtime with `isRemoteName`.
-- Add an error boundary around the host's routes if it has none, and report
+- Type every route table, or anything else holding remote names, as
+  `RemoteName`. For strings that only arrive at runtime, check them with
+  `isRemoteName` first.
+- If the host has no error boundary around its routes, add one, and report
   render errors from there.
-- If you kept an edited `remote.tsx` (upgrade asks before overwriting it), take
-  the new one or change its `name` prop to `RemoteName`. A copy edited to handle
-  load failures only, as above, can stay as it is.
-- A host still on 3.1.1's `load.ts`, or on 3.1.0's `overrides.ts`, keeps
-  re-registering remotes on its own, which can drop a remote another host
+- If you kept an edited `remote.tsx` (upgrade asks before overwriting it),
+  either take the new one or change its `name` prop to `RemoteName`. If you'd
+  already changed yours to handle only load failures, the way the new one does,
+  you can keep it as it is.
+- A host left on 3.1.1's `load.ts`, or on 3.1.0's `overrides.ts`, keeps
+  re-registering remotes on its own and can throw away a remote another host
   loaded.
 
 ### Tests
 
-- The e2e fixture's staff app now mounts an `assessments` expose itself, as a
-  nested host, and the shell has a page with two `assessments` remotes side by
-  side. New cases, each failing on 3.1.1 in Chromium, Firefox and WebKit with
-  plugin 1.17.1 and 1.23.5: a host retrying after the nested host recovered the
-  remote reuses its container; a retry started while another is in flight shares
-  it; a failed expose leaves its loaded remote's runtime module in place and logs
-  no re-register warning. The suite also passes on plugin 1.16.14.
-- The shell in the e2e fixture has an error boundary of its own and two remotes
-  that throw while rendering, one an `Error`, one a plain object. Both reach that
-  boundary as the very value thrown, once, and `onError` never sees them, while a
-  remote that fails to load still shows the section error, reports it once and
-  recovers on retry. The render cases fail on 3.1.x in all three browsers.
-- Misspelled remote names in the e2e shell must fail its own `tsc`, and a unit
-  test type-checks the generated `remotes.ts` against valid names, misspellings,
+- In the e2e fixture, the staff app is now a nested host that mounts an
+  `assessments` expose itself, and the shell has a page with two `assessments`
+  remotes side by side. There are three new cases, and each one fails on 3.1.1
+  in Chromium, Firefox and WebKit with plugin 1.17.1 and 1.23.5. A host retrying
+  after the nested host recovered the remote reuses its container. A retry
+  started while another is in flight shares it. A failed expose leaves its
+  loaded remote's runtime module alone and logs no re-register warning. The
+  suite also passes on plugin 1.16.14.
+- The e2e shell now has an error boundary of its own, plus two remotes that
+  throw while rendering, one an `Error` and one a plain object. Each one reaches
+  that boundary once, as the exact value that was thrown, and `onError` never
+  sees either. A remote that fails to load still shows the section error,
+  reports it once and recovers on retry. The render cases fail on 3.1.x in all
+  three browsers.
+- The e2e shell has a file of misspelled remote names, each marked
+  `@ts-expect-error`, so the shell's own `tsc` fails if any of them compiles. A
+  unit test type-checks the generated `remotes.ts` against valid names, typos,
   `isRemoteName` and a host with no remotes.
-- The e2e expect timeout is now 15s. Every worker shares the fixture's three dev
-  servers, and under parallel load WebKit's first render could take longer than
-  the 5s default.
+- The e2e expect timeout went from the 5s default up to 15s. Every worker shares
+  the fixture's three dev servers, and under parallel load WebKit's first render
+  could take longer than 5s.
 
 ## 3.1.1
 
