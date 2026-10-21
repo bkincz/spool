@@ -51,7 +51,7 @@ describe('<Remote> failure handling', () => {
 		const source = reactPrimitive()
 
 		expect(source).toContain('if (failure) throw failure')
-		expect(source).toContain('setFailure(asError(cause))')
+		expect(source).toContain('setFailure(loadFailure(cause))')
 	})
 
 	it('reports to sentry only when that addon is on', () => {
@@ -80,7 +80,7 @@ describe('<Remote> failure handling', () => {
 		await expect(transform(source, { loader: 'tsx', jsx: 'automatic' })).resolves.toBeDefined()
 	})
 
-	it('drops the runtime-cached remote before retrying, in every framework', () => {
+	it('checks whether the remote needs re-registering before retrying, in every framework', () => {
 		expect(reactPrimitive()).toContain('forceReregister(name)')
 		expect(framework('svelte')).toContain('forceReregister(name)')
 		expect(framework('vue')).toContain('forceReregister(attrs.name)')
@@ -167,7 +167,7 @@ describe('src/federation/overrides.ts', () => {
 			'export { setRemoteOverride, listRemoteOverrides } from "./overrides"'
 		)
 		expect(barrel).toContain(
-			'export { remotes, type RemoteEntry, preloadRemote } from "./remotes"'
+			'export { remotes, type RemoteEntry, type RemoteName, isRemoteName, preloadRemote } from "./remotes"'
 		)
 	})
 })

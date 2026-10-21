@@ -10,6 +10,8 @@ export default defineConfig({
 	testDir: '.',
 	globalSetup: './global-setup.ts',
 	timeout: 30_000,
+	// Every worker shares the fixture's three dev servers, which slow down under load.
+	expect: { timeout: 15_000 },
 	forbidOnly: !!process.env.CI,
 	reporter: process.env.CI ? [['list'], ['github']] : 'list',
 	outputDir: '../test-results',

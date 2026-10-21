@@ -36,6 +36,28 @@ async function outage(page: Page, app: FixtureApp, only?: RegExp): Promise<Outag
 	}
 }
 
+/** Every remoteEntry.js of `app` that loaded, query included. Each one is a container evaluation. */
+function loadedEntries(page: Page, app: FixtureApp): string[] {
+	const loaded: string[] = []
+	page.on('requestfinished', request => {
+		const url = new URL(request.url())
+		if (url.origin === appOrigin(app) && url.pathname === '/remoteEntry.js') {
+			loaded.push(url.pathname + url.search)
+		}
+	})
+	return loaded
+}
+
+/** The module the app itself imports, so calls share its registry and caches. */
+async function preload(page: Page, name: string): Promise<void> {
+	await page.evaluate(async name => {
+		const federation = (await import(
+			/* @vite-ignore */ `${location.origin}/src/federation/index.ts`
+		)) as { preloadRemote(name: string): Promise<void> }
+		await federation.preloadRemote(name)
+	}, name)
+}
+
 /*
  *   CASES
  ***************************************************************************************************/
@@ -114,15 +136,9 @@ test.describe('preloadRemote', () => {
 		await page.goto(appOrigin('shell'))
 		await expect(staff(page)).toBeVisible()
 
-		// The module the app itself imports, so the preload shares its registry and caches.
-		await page.evaluate(async () => {
-			const federation = (await import(
-				/* @vite-ignore */ `${location.origin}/src/federation/index.ts`
-			)) as { preloadRemote(name: string): Promise<void> }
-			await federation.preloadRemote('assessments/NewAssessment')
-		})
+		await preload(page, 'assessments/NewAssessment')
 		remote.end()
-		await page.getByRole('button', { name: 'assessments/NewAssessment' }).click()
+		await page.getByRole('button', { name: 'assessments/NewAssessment', exact: true }).click()
 
 		await expect(newAssessment(page)).toBeVisible()
 		await expect(page.getByRole('alert')).toHaveCount(0)
@@ -131,3 +147,111 @@ test.describe('preloadRemote', () => {
 		)
 	})
 })
+
+test.describe('several hosts and loads of one remote', () => {
+	test('a host retrying after a nested host recovered the remote reuses its container', async ({
+		page,
+	}) => {
+		const loaded = loadedEntries(page, 'assessments')
+		const remote = await outage(page, 'assessments', /\/remoteEntry\.js/)
+		await page.goto(appOrigin('shell'))
+		const badge = page.getByTestId('staff-badge')
+		await expect(staff(page)).toBeVisible()
+		await expect(badge.getByRole('alert')).toBeVisible()
+		// The shell fails on assessments too, through its own runtime.
+		await preload(page, 'assessments/NewAssessment')
+
+		// staff recovers on its second retry, so its first fresh url failed.
+		await badge.getByRole('button', { name: 'Try again' }).click()
+		await expect(badge.getByRole('alert')).toBeVisible()
+		remote.end()
+		await badge.getByRole('button', { name: 'Try again' }).click()
+		await expect(page.getByTestId('assessments-badge')).toBeVisible()
+
+		await page.getByRole('button', { name: 'assessments/NewAssessment', exact: true }).click()
+		await expect(newAssessment(page)).toBeVisible()
+		await expect(page.getByRole('alert')).toHaveCount(0)
+		expect(loaded).toHaveLength(1)
+	})
+
+	test('retries started while one is in flight share it', async ({ page }) => {
+		const loaded = loadedEntries(page, 'assessments')
+		let state: 'down' | 'held' = 'down'
+		let release!: () => void
+		const released = new Promise<void>(resolve => (release = resolve))
+		const requested: string[] = []
+		await page.route(
+			url => url.origin === appOrigin('assessments') && url.pathname === '/remoteEntry.js',
+			async route => {
+				if (state === 'down') return route.abort('connectionrefused')
+				requested.push(route.request().url())
+				await released
+				return route.continue()
+			}
+		)
+		await page.goto(`${appOrigin('shell')}/pair`)
+		const first = page.getByTestId('slot:assessments')
+		const second = page.getByTestId('slot:assessments/NewAssessment')
+		await expect(first.getByRole('alert')).toBeVisible()
+		await expect(second.getByRole('alert')).toBeVisible()
+
+		state = 'held'
+		await first.getByRole('button', { name: 'Try again' }).click()
+		await expect.poll(() => requested.length).toBe(1)
+		await second.getByRole('button', { name: 'Try again' }).click()
+		release()
+
+		await expect(first.getByText('exposed via Module Federation')).toBeVisible()
+		await expect(newAssessment(page)).toBeVisible()
+		await expect(page.getByRole('alert')).toHaveCount(0)
+		expect(requested).toHaveLength(1)
+		expect(loaded).toHaveLength(1)
+	})
+
+	test('a failed expose leaves its loaded remote in place', async ({ page }) => {
+		const warnings: string[] = []
+		page.on('console', message => {
+			if (message.type() === 'warning') warnings.push(message.text())
+		})
+		await page.addInitScript(() => {
+			type Instance = { moduleCache?: Map<string, object> }
+			// What every runtime on the page keeps for assessments.
+			Object.assign(window, {
+				cachedAssessments: () =>
+					(
+						(globalThis as { __FEDERATION__?: { __INSTANCES__: Instance[] } })
+							.__FEDERATION__?.__INSTANCES__ ?? []
+					).flatMap(instance =>
+						[...(instance.moduleCache?.entries() ?? [])]
+							.filter(([name]) => name.endsWith('assessments'))
+							.map(([, module]) => module)
+					),
+			})
+		})
+		const remote = await outage(page, 'assessments', /\/src\/new-assessment\.tsx/)
+		await page.goto(`${appOrigin('shell')}/new`)
+		await expect(page.getByRole('alert')).toBeVisible()
+
+		// Re-registering a remote drops the module the runtime keeps for it.
+		const cached = await page.evaluate(() => {
+			Object.assign(window, { __assessmentsBefore: cachedAssessments() })
+			return (window as { __assessmentsBefore?: object[] }).__assessmentsBefore!.length
+		})
+		expect(cached).toBeGreaterThan(0)
+		// Another expose of the same remote, loaded after one failed.
+		await preload(page, 'assessments')
+		remote.end()
+		await page.getByRole('button', { name: 'Try again' }).click()
+
+		await expect(newAssessment(page)).toBeVisible()
+		const dropped = await page.evaluate(() => {
+			const now = cachedAssessments()
+			const before = (window as { __assessmentsBefore?: object[] }).__assessmentsBefore ?? []
+			return before.filter(module => !now.includes(module)).length
+		})
+		expect(dropped).toBe(0)
+		expect(warnings.filter(text => text.includes('already registered'))).toEqual([])
+	})
+})
+
+declare function cachedAssessments(): object[]

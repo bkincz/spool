@@ -287,7 +287,7 @@ describe('navigation and federation addons', () => {
 		const hostFederation = files['apps/shell/src/federation/index.ts']!
 		expect(hostFederation).toContain('export { Remote } from "./remote"')
 		expect(hostFederation).toContain(
-			'export { remotes, type RemoteEntry, preloadRemote } from "./remotes"'
+			'export { remotes, type RemoteEntry, type RemoteName, isRemoteName, preloadRemote } from "./remotes"'
 		)
 		expect(hostFederation).toContain('if (getInstance()) {')
 		expect(hostFederation).toContain('registerPlugins([remoteOverridesPlugin])')

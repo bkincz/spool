@@ -18,6 +18,7 @@ import { Provenance } from '../core/provenance.js'
 import { resolveRanges, type RangeInfo } from '../core/ranges.js'
 import { helperFiles } from '../core/templates/helpers.js'
 import { sentryFiles } from '../core/templates/sentry.js'
+import { navigationFiles } from '../core/templates/composition.js'
 import { OwnedWriter } from '../core/fswrite.js'
 import { formatFiles } from '../core/format.js'
 import { CliError } from '../util/errors.js'
@@ -91,6 +92,7 @@ export async function upgrade(opts: UpgradeOptions): Promise<void> {
 	if (await ensureGitignore(ws.root, opts.dryRun ?? false)) writer.changed++
 
 	const sentry = ws.manifest.addons.includes('sentry')
+	const navigation = ws.manifest.addons.includes('navigation')
 	const envExamples = sentry ? sentryFiles(ws.manifest) : {}
 
 	for (const [name, app] of Object.entries(ws.manifest.apps)) {
@@ -112,6 +114,13 @@ export async function upgrade(opts: UpgradeOptions): Promise<void> {
 		const typings = await formatFiles(hostWiringFiles(ws.manifest, app, ws.root), ws.root)
 		for (const [rel, content] of Object.entries(typings)) {
 			await writer.replaceGenerated(dir, rel, content, name)
+		}
+
+		if (navigation) {
+			const files = await formatFiles(navigationFiles(app), ws.root)
+			for (const [rel, content] of Object.entries(files)) {
+				await writer.replaceGenerated(dir, rel, content, name)
+			}
 		}
 
 		await upgradeAppPackage(ctx, name, dir)

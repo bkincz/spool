@@ -8,7 +8,7 @@ import { chromium } from '@playwright/test'
 import { killTree, runCaptured, spawnProcess } from '../src/util/exec.js'
 import { waitForManifest } from '../src/util/net.js'
 import { freshDir, removeDir } from '../src/__tests__/helpers.js'
-import { PORTS, appOrigin } from './fixture.js'
+import { PORTS, WORKSPACE_ENV, appOrigin } from './fixture.js'
 
 const CLI_PACKAGE = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(CLI_PACKAGE, 'dist/index.js')
@@ -22,7 +22,7 @@ async function step(cmd: string, args: string[], cwd: string): Promise<void> {
 }
 
 interface FixtureManifest {
-	apps: Record<string, { port: number; exposes: Record<string, string> }>
+	apps: Record<string, { port: number; exposes: Record<string, string>; remotes: string[] }>
 }
 
 interface FixturePackage {
@@ -35,30 +35,106 @@ function editJson<T>(file: string, edit: (json: T) => void): void {
 	writeFileSync(file, `${JSON.stringify(json, null, '\t')}\n`)
 }
 
-// The host's own app file, which spool hands over to the user: one route per
-// loader, so the expose gets a page of its own.
-const SHELL_APP = `import { navigate, matchRoute, useLocation } from '@/navigation'
-import { Remote } from '@/federation'
+// The host's own app file, which spool hands over to the user: a page per
+// expose, one with two remotes from the same app side by side, and an app
+// error boundary of its own. Both record what reaches them on window.
+const SHELL_APP = `import { Component, type ReactNode } from 'react'
+import { navigate, matchRoute, useLocation } from '@/navigation'
+import { Remote, type RemoteName } from '@/federation'
 
-const routes: Record<string, string> = {
+const routes: Record<string, RemoteName | 'pair'> = {
 	'/': 'staff',
 	'/new': 'assessments/NewAssessment',
+	'/pair': 'pair',
+	'/broken': 'assessments/Broken',
+	'/throws': 'assessments/Throws',
+}
+
+function record(log: string, value: unknown) {
+	const logs = window as unknown as Record<string, unknown[] | undefined>
+	;(logs[log] ??= []).push(value)
+}
+
+class AppBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+	state = { failed: false }
+
+	static getDerivedStateFromError() {
+		return { failed: true }
+	}
+
+	componentDidCatch(thrown: unknown) {
+		record('__appCaught', thrown)
+	}
+
+	render() {
+		return this.state.failed ? <p data-testid="app-error">the app boundary caught it</p> : this.props.children
+	}
 }
 
 export default function App() {
 	const location = useLocation()
 	const active = matchRoute(location.pathname, routes)
+	const slots: RemoteName[] =
+		active === 'pair' ? ['assessments', 'assessments/NewAssessment'] : active ? [active] : []
 	return (
 		<>
 			<nav>
 				{Object.entries(routes).map(([path, name]) => (
-					<button key={name} onClick={() => navigate(path)}>
+					<button key={path} onClick={() => navigate(path)}>
 						{name}
 					</button>
 				))}
 			</nav>
-			<main>{active ? <Remote name={active} /> : null}</main>
+			<AppBoundary>
+				<main>
+					{slots.map(name => (
+						<section key={name} data-testid={'slot:' + name}>
+							<Remote name={name} onError={error => record('__remoteErrors', error)} />
+						</section>
+					))}
+				</main>
+			</AppBoundary>
 		</>
+	)
+}
+`
+
+// Names spool generates the shell's RemoteName from. A misspelling has to fail to compile.
+const SHELL_TYPOS = `import { Remote, preloadRemote, type RemoteName } from '@/federation'
+
+export const known: RemoteName[] = ['staff', 'assessments/NewAssessment']
+// @ts-expect-error not a remote
+export const typo = <Remote name="admn" />
+// @ts-expect-error not a remote
+void preloadRemote('staf')
+`
+
+// Throw once loaded, while rendering: a broken remote, not one that failed to load.
+const BROKEN = `export default function Broken(): never {
+	const error = new Error('broken while rendering')
+	Object.assign(window, { __brokenThrown: error })
+	throw error
+}
+`
+
+const THROWS = `export default function Throws(): never {
+	const thrown = { reason: 'not an Error' }
+	Object.assign(window, { __valueThrown: thrown })
+	throw thrown
+}
+`
+
+// staff as a nested host: it mounts one of assessments' exposes itself.
+const STAFF_APP = `import { Remote } from '@/federation'
+
+export default function App() {
+	return (
+		<div>
+			<strong>staff</strong>: a remote module exposed via Module Federation.
+			<aside data-testid="staff-badge">
+				<Remote name="assessments/Badge" />
+			</aside>
+		</div>
 	)
 }
 `
@@ -68,7 +144,12 @@ const NEW_ASSESSMENT = `export default function NewAssessment() {
 }
 `
 
-/** A shell plus two react remotes, one of them with a second expose, as spool generates them. */
+const BADGE = `export default function Badge() {
+	return <span data-testid="assessments-badge">3 due</span>
+}
+`
+
+/** A shell plus two react remotes as spool generates them: assessments with extra exposes, staff mounting one of them. */
 async function scaffold(root: string): Promise<string> {
 	await step(
 		process.execPath,
@@ -97,6 +178,10 @@ async function scaffold(root: string): Promise<string> {
 	editJson<FixtureManifest>(join(dir, 'spool.json'), manifest => {
 		for (const [name, port] of Object.entries(PORTS)) manifest.apps[name]!.port = port
 		manifest.apps.assessments!.exposes['./NewAssessment'] = './src/new-assessment.tsx'
+		manifest.apps.assessments!.exposes['./Badge'] = './src/badge.tsx'
+		manifest.apps.assessments!.exposes['./Broken'] = './src/broken.tsx'
+		manifest.apps.assessments!.exposes['./Throws'] = './src/throws.tsx'
+		manifest.apps.staff!.remotes = ['assessments']
 	})
 	// This checkout's CLI, not whatever version is on the registry.
 	editJson<FixturePackage>(join(dir, 'package.json'), pkg => {
@@ -112,9 +197,14 @@ async function scaffold(root: string): Promise<string> {
 		)
 	}
 	writeFileSync(join(dir, 'apps/assessments/src/new-assessment.tsx'), NEW_ASSESSMENT)
+	writeFileSync(join(dir, 'apps/assessments/src/badge.tsx'), BADGE)
+	writeFileSync(join(dir, 'apps/assessments/src/broken.tsx'), BROKEN)
+	writeFileSync(join(dir, 'apps/assessments/src/throws.tsx'), THROWS)
 	writeFileSync(join(dir, 'apps/shell/src/app/app.tsx'), SHELL_APP)
+	writeFileSync(join(dir, 'apps/shell/src/typos.tsx'), SHELL_TYPOS)
+	writeFileSync(join(dir, 'apps/staff/src/app/app.tsx'), STAFF_APP)
 
-	// Regenerates the host's registry and typings for the new expose.
+	// Regenerates the hosts' registries and typings, and makes staff a host.
 	await step(process.execPath, [CLI, 'upgrade'], dir)
 	await step('pnpm', ['install'], dir)
 
@@ -153,6 +243,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
 	const root = freshDir('spool-e2e-')
 	const dir = await scaffold(root)
+	process.env[WORKSPACE_ENV] = dir
 
 	let output = ''
 	const dev = spawnProcess(process.execPath, [CLI, 'dev'], { cwd: dir, stdio: 'pipe' })

@@ -203,17 +203,19 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **Shared state**: [@bkincz/clutch](https://github.com/bkincz/clutch) shared as a singleton, plus a store module in every app so they read and write one state instance per page. The store validates its shape on every change with a plain predicate, swap in a zod or valibot schema if you want one. Bump its `version` and add a `migrate` when the shape changes.
 - **Sentry**: each app gets its framework SDK and a `src/sentry.ts` wired into its entry. Errors are tagged with the app whose chunk threw them, so a remote failing inside a host is filed under the remote. Set `VITE_SENTRY_DSN` per app; every app gets a `.env.example` naming it. With `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, and `SENTRY_PROJECT` in CI, `spool build` uploads hidden source maps, deletes them from `dist/`, and tags the release.
 - **Navigation**: one url every bundle on the page agrees on, in `src/navigation`. `navigate` and `useLocation` ride on `window.history`, so back and forward work across remotes and deep links resolve on load.
-- **Federation**: a `<Remote name="..." />` primitive and the remote registry, in `src/federation`. Mounts any remote by name, across frameworks. Every module a remote exposes gets a name, so `<Remote name="dashboard" />` is its app and `<Remote name="dashboard/Panel" />` is a widget it also offers.
+- **Federation**: a `<Remote name="..." />` primitive and the remote registry, in `src/federation`. Mounts any remote by name, across frameworks. Every module a remote exposes gets a name, so `<Remote name="dashboard" />` is its app and `<Remote name="dashboard/Panel" />` is a widget it also offers. The registry generates a `RemoteName` type from those names, so `<Remote name="dashbaord" />` or `preloadRemote("serach")` fails to compile.
 
-`<Remote>` isolates failures. A remote that is down, mid-deploy or ships a broken chunk renders a placeholder with a retry instead of taking the host down. Retry fetches the remote's manifest and entry again, so once the remote is back it renders without a page reload. A failed `preloadRemote` does not stick either: the next mount starts clean. Pass `props` for the remote, `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
+`<Remote>` isolates load failures. A remote that is down, mid-deploy or ships a chunk that fails to load renders a placeholder with a retry instead of taking the host down. Retry fetches the remote's manifest and entry again, so once the remote is back it renders without a page reload. A failed `preloadRemote` does not stick either: the first mount after it loads the remote again by itself, so a short outage during a boot preload recovers without anyone clicking retry. Every host on the page, a nested host included, shares what it knows about each remote's entry, so one loaded by any of them is reused by the rest and no retry evaluates it twice. A failed expose of a remote that loaded is retried on its own, leaving the remote in place. Pass `props` for the remote, `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
+
+In React, an error a remote throws once it has loaded, while rendering, is not a load failure: `<Remote>` rethrows it as it was thrown, to your app's own error boundaries, and does not report it. Give the host an error boundary around its routes, or React unmounts the page.
 
 Composing remotes is your own code, one region or many, persistent or routed:
 
 ```tsx
 import { useLocation, navigate, matchRoute } from '@/navigation'
-import { Remote, preloadRemote } from '@/federation'
+import { Remote, preloadRemote, type RemoteName } from '@/federation'
 
-const routes = { '/': 'browse', '/search': 'search' }
+const routes: Record<string, RemoteName> = { '/': 'browse', '/search': 'search' }
 const active = matchRoute(useLocation().pathname, routes)
 return (
   <>
@@ -281,6 +283,15 @@ A host that must be framed by a partner sets `frameAncestors: ["https://partner.
 ### CI
 
 `spool ci` writes a check workflow that runs whichever of `doctor`, `type-check`, `lint`, `test`, and `build` your root package.json has, plus a path-filtered deploy workflow per app with a `deploy` command. Deploy jobs wait for the check job, run with read-only permissions, and trigger on the app's folder, the workspace packages, and the workspace files. `--pin` resolves every action to a commit sha. Example deploy commands: `wrangler pages deploy dist --project-name=<p>`, `netlify deploy --prod --dir=dist`, `vercel deploy dist --prod`, `aws s3 sync dist s3://<bucket> --delete`.
+
+## Upgrading to 4
+
+Run `spool upgrade` in every host, nested hosts included, then `spool doctor`. Two changes can need edits in your own code:
+
+- `<Remote name>` and `preloadRemote` take a `RemoteName`, not any string. Type route tables that hold remote names as `Record<string, RemoteName>`, imported from `@/federation`, and `matchRoute` keeps the type. `remotes` no longer has a string index. For a name that only arrives at runtime, check it with `isRemoteName(name)` first.
+- React's `<Remote>` now handles load failures only. A remote that throws while rendering reaches your app's error boundaries, and `onError` and the sentry addon no longer report it from `<Remote>`. Add an error boundary to the host if it has none.
+
+The full list is in the [changelog](./CHANGELOG.md).
 
 ## Upgrading to 3
 

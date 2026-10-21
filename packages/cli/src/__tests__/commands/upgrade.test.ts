@@ -469,3 +469,48 @@ describe('upgrade', () => {
 		expect(warn).toHaveBeenCalledWith(expect.stringContaining('dashboard'))
 	})
 })
+
+describe('upgrade: navigation addon', () => {
+	const HISTORY = 'apps/shell/src/navigation/history.ts'
+	// matchRoute before it kept the type of the names in a route table.
+	const olderHistory = () =>
+		read(HISTORY).replace('matchRoute<Name extends string>(', 'matchRoute(')
+
+	beforeEach(async () => {
+		process.chdir(cwd)
+		removeDir(dir)
+		dir = freshDir('spool-upgrade-nav-')
+		await create(dir, {
+			name: 'acme',
+			pm: 'pnpm',
+			host: 'shell',
+			remotes: 'dashboard',
+			addons: 'federation,navigation',
+			install: false,
+		})
+		process.chdir(dir)
+	})
+
+	it('refreshes the navigation files an older spool wrote', async () => {
+		const older = olderHistory()
+		writeFileSync(join(dir, HISTORY), older)
+		const record = readJson(PROVENANCE_FILE)
+		record.files[HISTORY] = hashContent(older)
+		writeFileSync(join(dir, PROVENANCE_FILE), JSON.stringify(record))
+
+		await upgrade({})
+
+		expect(read(HISTORY)).toContain('matchRoute<Name extends string>(')
+	})
+
+	it('leaves an edited navigation file alone', async () => {
+		vi.spyOn(log, 'warn').mockImplementation(() => {})
+		const edited = `${olderHistory()}// mine
+`
+		writeFileSync(join(dir, HISTORY), edited)
+
+		await upgrade({})
+
+		expect(read(HISTORY)).toBe(edited)
+	})
+})
