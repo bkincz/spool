@@ -6,7 +6,7 @@ import { defineConfig, globalIgnores } from 'eslint/config'
 export default defineConfig([
 	globalIgnores(['**/dist', '**/node_modules', '**/coverage']),
 	{
-		files: ['packages/*/src/**/*.{ts,tsx}'],
+		files: ['packages/*/src/**/*.{ts,tsx}', 'packages/*/e2e/**/*.ts'],
 		extends: [js.configs.recommended, tseslint.configs.recommended],
 		languageOptions: {
 			ecmaVersion: 2022,

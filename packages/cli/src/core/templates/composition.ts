@@ -60,6 +60,7 @@ export function federationFiles(m: Manifest, host: AppConfig): FileMap {
 		[FEDERATION_REMOTES_FILE]: remotesRegistry(refs),
 		[`src/federation/${primitiveFile}`]: primitive,
 		'src/federation/overrides.ts': overridesFile(m.overrides ?? false),
+		'src/federation/load.ts': loadFile(),
 		'src/federation/index.ts': federationBarrel(host),
 	}
 }
@@ -71,12 +72,14 @@ export function exposeKey(name: string, expose: string): string {
 /** The name-keyed loader table, regenerated whenever a host's remotes change. */
 export function remotesRegistry(refs: RemoteRef[]): string {
 	const entries = refs.flatMap(r =>
-		r.exposes.map(
-			expose =>
-				`  ${JSON.stringify(exposeKey(r.name, expose))}: { contract: "${r.contract}", load: () => import("${r.name}/${expose}") },`
-		)
+		r.exposes.map(expose => {
+			const id = `${r.name}/${expose}`
+			return `  ${JSON.stringify(exposeKey(r.name, expose))}: { contract: "${r.contract}", load: () => loadRemote("${id}", () => import("${id}")) },`
+		})
 	)
-	return `export interface RemoteEntry {
+	return `import { loadRemote } from "./load";
+
+export interface RemoteEntry {
   contract: "component" | "mount";
   load: () => Promise<{ default: unknown }>;
 }
@@ -105,6 +108,9 @@ function overridesFile(enabledInProd: boolean): string {
  * someone else.
  */
 import { getInstance, type ModuleFederationRuntimePlugin } from "@module-federation/runtime";
+
+// The <Remote> primitives have always imported it from here.
+export { forceReregister } from "./load";
 
 const STORAGE_PREFIX = "spool:remote:";
 
@@ -159,14 +165,93 @@ export function applyRemoteOverrides(): void {
     }
   }
 }
+`
+}
 
-/** Drops the runtime's cached remote before a caller re-imports it, so a
- * fixed manifest or entry script is actually re-fetched instead of reusing
- * the failed load. */
-export function forceReregister(name: string): void {
+/** Generated `src/federation/load.ts`: every loader in remotes.ts goes through loadRemote. */
+function loadFile(): string {
+	return `import { getInstance, type ModuleFederationRuntimePlugin } from "@module-federation/runtime";
+
+// The bundler's import("staff/App") keeps its first promise for the life of
+// the page, even a rejected one, so an id whose import has failed goes to the
+// runtime from then on.
+const failedImports = new Set<string>();
+// The runtime keeps a remoteEntry that failed to load, so a remote whose last
+// load failed is re-registered before the next one.
+const failedRemotes = new Set<string>();
+// WebKit can answer the runtime's second import() of a remoteEntry.js that
+// failed with the same failure, without fetching it. A remote whose entry has
+// never loaded is fetched from a fresh url instead, and keeps that url once it
+// works, so no container is evaluated twice.
+const entryRetries = new Map<string, number>();
+const loadedEntries = new Set<string>();
+let retries = 0;
+
+const entryRetryPlugin: ModuleFederationRuntimePlugin = {
+  name: "spool-entry-retry",
+  loadEntry({ remoteInfo }) {
+    const retry = entryRetries.get(remoteInfo.name);
+    if (retry === undefined || (remoteInfo.type !== "module" && remoteInfo.type !== "esm")) return;
+    const url = new URL(remoteInfo.entry);
+    url.searchParams.set("spool-retry", String(retry));
+    return import(/* @vite-ignore */ url.href);
+  },
+};
+
+/** The remote a registry key or import id belongs to: "staff" for "staff" and
+ * "staff/App", "assessments" for "assessments/NewAssessment". */
+export function remoteName(id: string): string {
+  const slash = id.indexOf("/");
+  return slash === -1 ? id : id.slice(0, slash);
+}
+
+function registeredRemote(name: string) {
   const instance = getInstance();
   const remote = instance?.options.remotes.find(candidate => candidate.name === name || candidate.alias === name);
-  if (instance && remote) instance.registerRemotes([remote], { force: true });
+  return instance && remote ? { instance, remote } : undefined;
+}
+
+/** Drops the runtime's cached remote, so the next load fetches its manifest
+ * and entry script again instead of reusing a failed one. */
+export function forceReregister(id: string): void {
+  const name = remoteName(id);
+  const registered = registeredRemote(name);
+  if (!registered) return;
+  const { instance, remote } = registered;
+  // Re-registering drops the runtime's module, the only record that the entry loaded.
+  if (instance.moduleCache.get(remote.name)?.remoteEntryExports) loadedEntries.add(remote.name);
+  if (!loadedEntries.has(remote.name)) {
+    instance.registerPlugins([entryRetryPlugin]);
+    entryRetries.set(remote.name, ++retries);
+  }
+  instance.registerRemotes([remote], { force: true });
+  failedRemotes.delete(name);
+}
+
+/** Loads a remote module through the bundler's import, which also registers
+ * the remote with the runtime, and through the runtime once that import has failed. */
+export function loadRemote<T>(id: string, importRemote: () => Promise<T>): Promise<T> {
+  const name = remoteName(id);
+  if (failedRemotes.has(name)) forceReregister(name);
+  const registered = failedImports.has(id) ? registeredRemote(name) : undefined;
+  const load: Promise<T> = registered
+    ? registered.instance
+        .loadRemote<T>(id)
+        .then((mod) => mod ?? Promise.reject(new Error('remote "' + id + '" loaded nothing')))
+    : importRemote().catch((error: unknown) => {
+        failedImports.add(id);
+        throw error;
+      });
+  return load.then(
+    (mod) => {
+      failedRemotes.delete(name);
+      return mod;
+    },
+    (error: unknown) => {
+      failedRemotes.add(name);
+      throw error;
+    },
+  );
 }
 `
 }

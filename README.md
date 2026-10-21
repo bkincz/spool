@@ -205,7 +205,7 @@ Mix react, svelte, and vue freely. Every app picks its own framework. React remo
 - **Navigation**: one url every bundle on the page agrees on, in `src/navigation`. `navigate` and `useLocation` ride on `window.history`, so back and forward work across remotes and deep links resolve on load.
 - **Federation**: a `<Remote name="..." />` primitive and the remote registry, in `src/federation`. Mounts any remote by name, across frameworks. Every module a remote exposes gets a name, so `<Remote name="dashboard" />` is its app and `<Remote name="dashboard/Panel" />` is a widget it also offers.
 
-`<Remote>` isolates failures. A remote that is mid-deploy or ships a broken chunk renders a placeholder with a retry instead of taking the host down. Pass `props` for the remote, `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
+`<Remote>` isolates failures. A remote that is down, mid-deploy or ships a broken chunk renders a placeholder with a retry instead of taking the host down. Retry fetches the remote's manifest and entry again, so once the remote is back it renders without a page reload. A failed `preloadRemote` does not stick either: the next mount starts clean. Pass `props` for the remote, `fallback` for loading, `renderError` to style the failure, `onError` to report it. The sentry addon captures them automatically.
 
 Composing remotes is your own code, one region or many, persistent or routed:
 

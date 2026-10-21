@@ -1,5 +1,54 @@
 # Changelog
 
+## 3.1.1
+
+### Fixed
+
+- "Try again" never recovered a remote that had failed to load. Only a page
+  reload did. `import("staff/App")` compiles to a module from
+  `@module-federation/vite` that keeps its first load promise for the life of
+  the page, rejected or not, so every retry got the original error back
+  without a request. Re-registering the remote in the runtime could not reach
+  that promise. Every loader in `src/federation/remotes.ts` now goes through
+  `loadRemote` in a new `src/federation/load.ts`. The first load still uses
+  the bundler's import, which is what registers the remote. Once that import
+  has failed, later loads ask the runtime directly.
+- Retry did nothing for an expose. `forceReregister("assessments/NewAssessment")`
+  looked for a remote of that name, but the runtime calls it `assessments`, so
+  a failed `remoteEntry.js` stayed cached. The remote is now the part of the
+  name before the first `/`.
+- A failed `preloadRemote` broke the mount that followed it. A remote whose
+  last load failed is now re-registered before its next load, whoever starts
+  it.
+- WebKit can answer the runtime's second import of a `remoteEntry.js` that
+  failed with the same failure, without fetching it. A remote whose entry has
+  never loaded is fetched once from `remoteEntry.js?spool-retry=<n>`. An entry
+  that has loaded is never fetched from a second url, so no remote container
+  is evaluated twice.
+
+### Upgrading
+
+Run `spool upgrade`. It rewrites `src/federation/remotes.ts` and
+`src/federation/overrides.ts` and adds `src/federation/load.ts`. The generated
+API is unchanged: `remotes`, `RemoteEntry`, `preloadRemote`, `<Remote>` and its
+props, and `renderError(error, retry)`.
+
+`remote.tsx`, `Remote.svelte` and `Remote.vue` did not change. If you edited
+yours, upgrade still asks before overwriting it, and you can keep your copy:
+it imports `forceReregister` from `./overrides`, which still exports it, and
+retry recovers with it. There is nothing to merge by hand. The same goes for an
+edited `overrides.ts`. An edited `remotes.ts` that you keep also keeps the bug,
+so take the new one and move your edits onto it.
+
+### Tests
+
+- `pnpm --filter @bkincz/spool test:e2e` scaffolds a workspace with this
+  checkout's CLI, starts it with `spool dev`, and checks in Chromium, Firefox
+  and WebKit that retry recovers an app and an expose after their dev server or
+  `remoteEntry.js` was unreachable, and that a failed preload does not break the
+  next mount. Set `SPOOL_E2E_MF_VITE=1.17.1` to run it on the plugin release
+  built on the runtime spool pins.
+
 ## 3.1.0
 
 ### Added

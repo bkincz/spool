@@ -186,9 +186,11 @@ describe('remote overrides', () => {
 	}
 
 	it('matches a remote by its alias, which is where the vite plugin keeps the app name', () => {
-		const source = overrides()
-		expect(source).toContain('overrideKey(remote.alias ?? remote.name)')
-		expect(source).toContain('candidate.name === name || candidate.alias === name')
+		expect(overrides()).toContain('overrideKey(remote.alias ?? remote.name)')
+	})
+
+	it('re-exports forceReregister from where the primitives import it', () => {
+		expect(overrides()).toContain('export { forceReregister } from "./load"')
 	})
 
 	it('accepts interface-typed props on every framework primitive', () => {
